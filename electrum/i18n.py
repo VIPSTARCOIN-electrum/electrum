@@ -32,7 +32,7 @@ language = gettext.translation('electrum', LOCALE_DIR, fallback=True)
 
 def _(x):
     global language
-    dic = [('Bitcoin', 'VIPSTARCOIN'), ('bitcoin', 'vipstarcoin'), ('mBTC/kB', 'mVIPS/kB'), ('ビットコイン', 'ビップスターコイン')]
+    dic = [('Bitcoin', 'VIPSTARCOIN'), ('bitcoin', 'vipstarcoin'), ('mBTC/kB', 'mVIPS/kB'), ('繝薙ャ繝医さ繧､繝ｳ', '繝薙ャ繝励せ繧ｿ繝ｼ繧ｳ繧､繝ｳ')]
     for b, m in dic:
         x = x.replace(m, b)
     t = language.gettext(x)
