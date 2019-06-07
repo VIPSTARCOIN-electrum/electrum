@@ -50,10 +50,10 @@ class BitcoinMainnet(AbstractNet):
 
     TESTNET = False
     WIF_PREFIX = 0x80
-    ADDRTYPE_P2PKH = 0
-    ADDRTYPE_P2SH = 5
-    SEGWIT_HRP = "bc"
-    GENESIS = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
+    ADDRTYPE_P2PKH = 70
+    ADDRTYPE_P2SH = 50
+    SEGWIT_HRP = "vips"
+    GENESIS = "0000d068e1d30f79fb64446137106be9c6ee69a6a722295c131506b1ee09b77c"
     DEFAULT_PORTS = {'t': '50001', 's': '50002'}
     DEFAULT_SERVERS = read_json('servers.json', {})
     CHECKPOINTS = read_json('checkpoints.json', [])
@@ -81,10 +81,10 @@ class BitcoinTestnet(AbstractNet):
 
     TESTNET = True
     WIF_PREFIX = 0xef
-    ADDRTYPE_P2PKH = 111
-    ADDRTYPE_P2SH = 196
-    SEGWIT_HRP = "tb"
-    GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
+    ADDRTYPE_P2PKH = 132
+    ADDRTYPE_P2SH = 110
+    SEGWIT_HRP = "tvips"
+    GENESIS = "0000d068e1d30f79fb64446137106be9c6ee69a6a722295c131506b1ee09b77c"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
     DEFAULT_SERVERS = read_json('servers_testnet.json', {})
     CHECKPOINTS = read_json('checkpoints_testnet.json', [])
@@ -110,36 +110,21 @@ class BitcoinTestnet(AbstractNet):
 
 class BitcoinRegtest(BitcoinTestnet):
 
-    SEGWIT_HRP = "bcrt"
-    GENESIS = "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
+    SEGWIT_HRP = "tvips"
+    GENESIS = "0000d068e1d30f79fb64446137106be9c6ee69a6a722295c131506b1ee09b77c"
     DEFAULT_SERVERS = read_json('servers_regtest.json', {})
     CHECKPOINTS = []
-
-
-class BitcoinSimnet(BitcoinTestnet):
-
-    SEGWIT_HRP = "sb"
-    GENESIS = "683e86bd5c6d110d91b94b97137ba6bfe02dbbdb8e3dff722a669b5d69d77af6"
-    DEFAULT_SERVERS = read_json('servers_regtest.json', {})
-    CHECKPOINTS = []
-
 
 # don't import net directly, import the module instead (so that net is singleton)
 net = BitcoinMainnet
-
-def set_simnet():
-    global net
-    net = BitcoinSimnet
 
 def set_mainnet():
     global net
     net = BitcoinMainnet
 
-
 def set_testnet():
     global net
     net = BitcoinTestnet
-
 
 def set_regtest():
     global net

@@ -27,7 +27,9 @@ import hashlib
 from typing import List, Tuple, TYPE_CHECKING, Optional, Union
 from enum import IntEnum
 
-from .util import bfh, bh2u, BitcoinException, assert_bytes, to_bytes, inv_dict
+from eth_abi import encode_abi
+from eth_utils import function_abi_to_4byte_selector
+from .util import bfh, bh2u, BitcoinException, assert_bytes, to_bytes, inv_dict, unpack_uint16_from, unpack_uint32_from, unpack_uint64_from, unpack_int32_from, unpack_int64_from
 from . import version
 from . import segwit_addr
 from . import constants
@@ -40,14 +42,16 @@ if TYPE_CHECKING:
 
 ################################## transactions
 
-COINBASE_MATURITY = 100
+COINBASE_MATURITY = 500
 COIN = 100000000
-TOTAL_COIN_SUPPLY_LIMIT_IN_BTC = 21000000
+TOTAL_COIN_SUPPLY_LIMIT_IN_BTC = 70000000000
+RECOMMEND_CONFIRMATIONS = 10
 
 # supported types of transaction outputs
 TYPE_ADDRESS = 0
 TYPE_PUBKEY  = 1
 TYPE_SCRIPT  = 2
+TYPE_STAKE = 3
 
 
 class opcodes(IntEnum):
@@ -184,6 +188,11 @@ class opcodes(IntEnum):
     OP_NOP8 = 0xb7
     OP_NOP9 = 0xb8
     OP_NOP10 = 0xb9
+
+    # smart contract
+    OP_CREATE = 0xc1
+    OP_CALL = 0xc2
+    OP_SPEND = 0xc3
 
     OP_INVALIDOPCODE = 0xff
 
@@ -336,6 +345,11 @@ def public_key_to_p2pkh(public_key: bytes, *, net=None) -> str:
     if net is None: net = constants.net
     return hash160_to_p2pkh(hash_160(public_key), net=net)
 
+def hash160_to_segwit_addr(h160: bytes, *, net=None) -> str:
+    if net is None:
+        net = constants.net
+    return segwit_addr.encode(net.SEGWIT_HRP, 0, h160)
+
 def hash_to_segwit_addr(h: bytes, witver: int, *, net=None) -> str:
     if net is None: net = constants.net
     return segwit_addr.encode(net.SEGWIT_HRP, witver, h)
@@ -390,7 +404,8 @@ def script_to_address(script: str, *, net=None) -> str:
 def address_to_script(addr: str, *, net=None) -> str:
     if net is None: net = constants.net
     if not is_address(addr, net=net):
-        raise BitcoinException(f"invalid bitcoin address: {addr}")
+        raise BitcoinException(f"invalid vipstarcoin address: {addr}")
+
     witver, witprog = segwit_addr.decode(net.SEGWIT_HRP, addr)
     if witprog is not None:
         if not (0 <= witver <= 16):
@@ -627,6 +642,17 @@ def is_address(addr: str, *, net=None) -> bool:
     return is_segwit_address(addr, net=net) \
            or is_b58_address(addr, net=net)
 
+def is_p2pkh(addr):
+    if is_address(addr):
+        addrtype, h = b58_address_to_hash160(addr)
+        return addrtype == constants.net.ADDRTYPE_P2PKH
+
+
+def is_p2sh(addr):
+    if is_address(addr):
+        addrtype, h = b58_address_to_hash160(addr)
+        return addrtype == constants.net.ADDRTYPE_P2SH
+
 
 def is_private_key(key: str, *, raise_on_error=False) -> bool:
     try:
@@ -636,6 +662,20 @@ def is_private_key(key: str, *, raise_on_error=False) -> bool:
         if raise_on_error:
             raise
         return False
+
+
+def is_hash160(addr):
+    if not addr:
+        return False
+    if not isinstance(addr, str):
+        return False
+    if not len(addr) == 40:
+        return False
+    for char in addr:
+        if (char < '0' or char > '9') and (char < 'A' or char > 'F') and (char < 'a' or char > 'f'):
+            return False
+    return True
+
 
 
 ########### end pywallet functions #######################
@@ -652,3 +692,88 @@ def is_minikey(text: str) -> bool:
 
 def minikey_to_private_key(text: str) -> bytes:
     return sha256(text)
+
+class Deserializer(object):
+    '''Deserializes blocks into transactions.
+
+    External entry points are read_tx() and read_block().
+
+    This code is performance sensitive as it is executed 100s of
+    millions of times during sync.
+    '''
+
+    def __init__(self, binary, start=0):
+        assert isinstance(binary, bytes)
+        self.binary = binary
+        self.binary_length = len(binary)
+        self.cursor = start
+
+    def read_byte(self):
+        cursor = self.cursor
+        self.cursor += 1
+        return self.binary[cursor]
+
+    def read_varbytes(self):
+        return self._read_nbytes(self._read_varint())
+
+    def read_varint(self):
+        n = self.binary[self.cursor]
+        self.cursor += 1
+        if n < 253:
+            return n
+        if n == 253:
+            return self._read_le_uint16()
+        if n == 254:
+            return self._read_le_uint32()
+        return self._read_le_uint64()
+
+    def _read_nbytes(self, n):
+        cursor = self.cursor
+        self.cursor = end = cursor + n
+        assert self.binary_length >= end
+        return self.binary[cursor:end]
+
+    def _read_le_int32(self):
+        result, = unpack_int32_from(self.binary, self.cursor)
+        self.cursor += 4
+        return result
+
+    def _read_le_int64(self):
+        result, = unpack_int64_from(self.binary, self.cursor)
+        self.cursor += 8
+        return result
+
+    def _read_le_uint16(self):
+        result, = unpack_uint16_from(self.binary, self.cursor)
+        self.cursor += 2
+        return result
+
+    def _read_le_uint32(self):
+        result, = unpack_uint32_from(self.binary, self.cursor)
+        self.cursor += 4
+        return result
+
+    def _read_le_uint64(self):
+        result, = unpack_uint64_from(self.binary, self.cursor)
+        self.cursor += 8
+        return result
+
+def eth_abi_encode(abi, args):
+    """
+    >> abi = {"constant":True,"inputs":[{"name":"","type":"address"}],
+"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":False,"stateMutability":"view","type":"function"}
+    >> eth_abi_encode(abi, ['9d3d4cc1986d81f9109f2b091b7732e7d9bcf63b'])
+    >> '70a082310000000000000000000000009d3d4cc1986d81f9109f2b091b7732e7d9bcf63b'
+    ## address must be lower case
+    :param abi: dict
+    :param args: list
+    :return: str
+    """
+    if not abi:
+        return "00"
+    types = list([inp['type'] for inp in abi.get('inputs', [])])
+    if abi.get('name'):
+        result = function_abi_to_4byte_selector(abi) + encode_abi(types, args)
+    else:
+        result = encode_abi(types, args)
+    return bh2u(result)

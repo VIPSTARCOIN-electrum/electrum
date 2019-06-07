@@ -1287,3 +1287,44 @@ class Network(Logger):
             for server in servers:
                 await group.spawn(get_response(server))
         return responses
+
+    def get_transactions_receipt(self, tx_hashs, callback):
+        command = 'blochchain.transaction.get_receipt'
+        messages = [(command, [tx_hash]) for tx_hash in tx_hashs]
+        invocation = lambda c: self.send(messages, c)
+        return Network.__with_default_synchronous_callback(invocation, callback)
+
+    def subscribe_tokens(self, tokens, callback):
+        msgs = [(
+            'blockchain.contract.event.subscribe',
+            [bh2u(b58_address_to_hash160(token.bind_addr)[1]), token.contract_addr, TOKEN_TRANSFER_TOPIC])
+            for token in tokens]
+        self.send(msgs, callback)
+
+    def get_token_info(self, contract_addr, callback=None):
+        command = 'blockchain.token.get_info'
+        invocation = lambda c: self.send([(command, [contract_addr, ])], c)
+        return Network.__with_default_synchronous_callback(invocation, callback)
+
+    def call_contract(self, address, data, sender, callback=None):
+        command = 'blockchain.contract.call'
+        invocation = lambda c: self.send([(command, [address, data, sender])], c)
+        return Network.__with_default_synchronous_callback(invocation, callback)
+
+    def request_token_balance(self, token, callback):
+        """
+        :type token: Token
+        :param callback:
+        :return:
+        """
+        __, hash160 = b58_address_to_hash160(token.bind_addr)
+        hash160 = bh2u(hash160)
+        datahex = '70a08231{}'.format(hash160.zfill(64))
+        self.send([('blockchain.contract.call', [token.contract_addr, datahex, '', 'int'])],
+                  callback)
+
+    def request_token_history(self, token, callback):
+        __, hash160 = b58_address_to_hash160(token.bind_addr)
+        hash160 = bh2u(hash160)
+        self.send([('blockchain.contract.event.get_history',
+                    [hash160, token.contract_addr, TOKEN_TRANSFER_TOPIC])], callback)

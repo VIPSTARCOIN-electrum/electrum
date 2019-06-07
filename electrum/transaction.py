@@ -526,6 +526,11 @@ def parse_output(vds, i):
     d['type'], d['address'] = get_address_from_output_script(scriptPubKey)
     d['scriptPubKey'] = bh2u(scriptPubKey)
     d['prevout_n'] = i
+
+    # VIPSTARCOIN
+    if not d['value'] and not d['address'] and not i and not d['scriptPubKey']:
+        # make then first output in stake tx as TYPE_STAKE
+        d['type'] = TYPE_STAKE
     return d
 
 
@@ -576,8 +581,52 @@ def multisig_script(public_keys: Sequence[str], m: int) -> str:
     keylist = [push_script(k) for k in public_keys]
     return op_m + ''.join(keylist) + op_n + opcodes.OP_CHECKMULTISIG.hex()
 
+def contract_encode_number(n):
+    bchr = lambda x: bytes([x])
+    r = bytearray(0)
+    if n == 0:
+        return bytes(r)
+    neg = n < 0
+    absvalue = -n if neg else n
+    while absvalue:
+        r.append(absvalue & 0xff)
+        absvalue >>= 8
+    if r[-1] & 0x80:
+        r.append(0x80 if neg else 0)
+    elif neg:
+        r[-1] |= 0x80
+    return bytes(bchr(len(r)) + r)
 
+def contract_script(gas_limit, gas_price, datahex, contract_addr, opcode):
+    script = '0104'
+    script += bh2u(contract_encode_number(gas_limit))
+    script += bh2u(contract_encode_number(gas_price))
+    script += push_script(datahex)
 
+    if opcode == opcodes.OP_CALL:
+        script += push_script(contract_addr)
+
+    script += bh2u(bytes([opcode]))
+    return script
+
+def is_opcall_script(_bytes):
+    try:
+        decoded = [x for x in script_GetOp(_bytes)]
+    except MalformedVIPSTARCOINScript:
+        return False
+    return len(decoded) == 6 \
+           and decoded[0] == (1, b'\x04', 2) \
+           and decoded[-2][0] == 0x14 \
+           and decoded[-1][0] == opcodes.OP_CALL
+
+def is_opcreate_script(_bytes):
+    try:
+        decoded = [x for x in script_GetOp(_bytes)]
+    except MalformedVIPSTARCOINScript:
+        return False
+    return len(decoded) == 5 \
+           and decoded[0] == (1, b'\x04', 2) \
+           and decoded[-1][0] == opcodes.OP_CREATE
 
 class Transaction:
 
@@ -947,10 +996,30 @@ class Transaction:
         if outputs:
             self._outputs.sort(key = lambda o: (o.value, self.pay_script(o.type, o.address)))
 
+    def vipstarcoin_sort(self, sender):
+        if not sender:
+            return
+        sender_inp = None
+        for i in range(len(self._inputs)):
+            inp = self._inputs[i]
+            if inp['address'] == sender:
+                sender_inp = inp
+                del self._inputs[i]
+                break
+        if sender_inp:
+            self._inputs.insert(0, sender_inp)
+        else:
+            print_error('vipstarcoin_sort', self._inputs)
+            raise Exception('vipstarcoin_sort - sender address not in inputs')
+
     @classmethod
     def serialize_output(cls, output: TxOutput) -> str:
+        # VIPSTARCOIN (by Qtum)
+        output_type = output.type
+        if output_type == TYPE_STAKE:
+            output_type = TYPE_SCRIPT
         s = int_to_hex(output.value, 8)
-        script = cls.pay_script(output.type, output.address)
+        script = cls.pay_script(output_type, addr=output.address)
         s += var_int(len(script)//2)
         s += script
         return s

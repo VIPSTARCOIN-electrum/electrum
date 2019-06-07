@@ -197,7 +197,7 @@ class CoinChooserBase(Logger):
         return change
 
     def make_tx(self, coins, inputs, outputs, change_addrs, fee_estimator,
-                dust_threshold):
+                dust_threshold, sender=None):
         """Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
         the transaction) it is kept, otherwise none is sent and it is
@@ -399,6 +399,40 @@ class CoinChooserPrivacy(CoinChooserRandom):
             return badness
 
         return penalty
+
+
+class CoinChooserVIPSTARCOIN(CoinChooserBase):
+    def keys(self, coins):
+        return [coin['address'] for coin in coins]
+
+    def choose_buckets(self, buckets, sufficient_funds, penalty_func, sender=None):
+        '''Spend the oldest buckets first.'''
+        # Unconfirmed coins are young, not old
+        adj_height = lambda height: 99999999 if height <= 0 else height
+        buckets.sort(key=lambda b: max(adj_height(coin['height'])
+                                       for coin in b.coins))
+        selected = []
+
+        if sender:
+            # put sender bucket to selected first
+            for i in range(len(buckets)):
+                bucket = buckets[i]
+                if bucket.desc == sender:
+                    del buckets[i]
+                    selected.append(bucket)
+                    # check if it's already enough
+                    if sufficient_funds(selected):
+                        return strip_unneeded_utxo(selected, sufficient_funds)
+                    break
+            if len(selected) == 0:
+                raise Exception('choose_buckets - sender address has no utxo')
+
+        for bucket in buckets:
+            selected.append(bucket)
+            if sufficient_funds(selected):
+                return strip_unneeded(selected, sufficient_funds, sender)
+        else:
+            raise NotEnoughFunds()
 
 
 COIN_CHOOSERS = {

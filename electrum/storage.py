@@ -247,3 +247,49 @@ class WalletStorage(Logger):
     def get_action(self):
         action = run_hook('get_action', self)
         return action
+
+
+class ModelStorage(dict):
+
+    def __init__(self, name, wallet_storage):
+        dict.__init__(self)
+        self.storage = wallet_storage
+        self.name = name
+        d = self.validate(self.storage.get(name, {}))
+        try:
+            self.update(d)
+        except BaseException as e:
+            print_error('ModelStorage init error', self.name, e)
+            return
+
+    def __setitem__(self, key, value):
+        dict.__setitem__(self, key, value)
+        self.save()
+
+    def save(self):
+        self.storage.put(self.name, dict(self))
+
+    def pop(self, key):
+        if key in self.keys():
+            dict.pop(self, key)
+            self.save()
+
+    def load_meta(self, data):
+        self.update(data)
+        self.save()
+
+    def import_file(self, path):
+        import_meta(path, self.validate, self.load_meta)
+
+    def export_file(self, filename):
+        export_meta(self, filename)
+
+    def find_regex(self, haystack, needle):
+        regex = re.compile(needle)
+        try:
+            return regex.search(haystack).groups()[0]
+        except AttributeError:
+            return None
+
+    def validate(self, data):
+        raise NotImplementedError

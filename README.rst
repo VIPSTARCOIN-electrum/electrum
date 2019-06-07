@@ -1,16 +1,17 @@
-Electrum - Lightweight Bitcoin client
+Electrum for VIPSTARCOIN - Lightweight VIPSTARCOIN client
 =====================================
 
 ::
 
   Licence: MIT Licence
-  Author: Thomas Voegtlin
+  Origin Author: Thomas Voegtlin
+  Port Author: y-chan
   Language: Python (>= 3.6)
-  Homepage: https://electrum.org/
+  Homepage: https://electrum-vips.info/
 
 
-.. image:: https://travis-ci.org/spesmilo/electrum.svg?branch=master
-    :target: https://travis-ci.org/spesmilo/electrum
+.. image:: https://travis-ci.org/VIPSTARCOIN-electrum/electrum-vips.svg?branch=master
+    :target: https://travis-ci.org/VIPSTARCOIN-electrum/electrum-vips
     :alt: Build Status
 .. image:: https://coveralls.io/repos/github/spesmilo/electrum/badge.svg?branch=master
     :target: https://coveralls.io/github/spesmilo/electrum?branch=master
@@ -41,7 +42,7 @@ directory. To run Electrum from its root directory, just do::
 You can also install Electrum on your system, by running this command::
 
     sudo apt-get install python3-setuptools
-    python3 -m pip install .[fast]
+    sudo python3 -m pip install .[fast]
 
 This will download and install the Python dependencies used by
 Electrum instead of using the 'packages' directory.
@@ -59,12 +60,12 @@ Development version
 
 Check out the code from GitHub::
 
-    git clone git://github.com/spesmilo/electrum.git
-    cd electrum
+    git clone https://github.com/VIPSTARCOIN-electrum/electrum-vips.git
+    cd electrum-vips
 
 Run install (this should install dependencies)::
 
-    python3 -m pip install .[fast]
+    sudo python3 -m pip install .[fast]
 
 
 Compile the protobuf description file::

@@ -120,9 +120,6 @@ class SimpleConfig(Logger):
         elif self.get('regtest'):
             path = os.path.join(path, 'regtest')
             make_dir(path, allow_symlink=False)
-        elif self.get('simnet'):
-            path = os.path.join(path, 'simnet')
-            make_dir(path, allow_symlink=False)
 
         self.logger.info(f"electrum directory {path}")
         return path
@@ -207,7 +204,7 @@ class SimpleConfig(Logger):
         base_unit = self.user_config.get('base_unit')
         if isinstance(base_unit, str):
             self._set_key_in_user_config('base_unit', None)
-            map_ = {'btc':8, 'mbtc':5, 'ubtc':2, 'bits':2, 'sat':0}
+            map_ = {'vips':8, 'mvips':5, 'uvips':2, 'boon':0}
             decimal_point = map_.get(base_unit.lower())
             self._set_key_in_user_config('decimal_point', decimal_point)
 

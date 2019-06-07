@@ -198,20 +198,14 @@ class KeysLayout(QVBoxLayout):
         return self.text_e.text()
 
     def on_edit(self):
-        valid = False
-        try:
-            valid = self.is_valid(self.get_text())
-        except Exception as e:
-            self.parent.next_button.setToolTip(f'{_("Error")}: {str(e)}')
-        else:
-            self.parent.next_button.setToolTip('')
-        self.parent.next_button.setEnabled(valid)
+        b = self.is_valid(self.get_text())
+        self.parent.next_button.setEnabled(b)
 
 
 class SeedDialog(WindowModalDialog):
 
     def __init__(self, parent, seed, passphrase):
-        WindowModalDialog.__init__(self, parent, ('Electrum - ' + _('Seed')))
+        WindowModalDialog.__init__(self, parent, ('Electrum for VIPSTARCOIN - ' + _('Seed')))
         self.setMinimumWidth(400)
         vbox = QVBoxLayout(self)
         title =  _("Your wallet generation seed is:")
