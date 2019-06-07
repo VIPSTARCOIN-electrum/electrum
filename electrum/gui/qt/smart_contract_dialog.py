@@ -13,10 +13,14 @@ from .util import ButtonsLineEdit, Buttons, ButtonsTextEdit, CancelButton, Messa
 from electrum.i18n import _
 from electrum.plugin import run_hook
 from electrum.bitcoin import is_hash160, is_address, b58_address_to_hash160
-from electrum.util import bh2u, print_error
+from electrum.util import bh2u
+from electrum.logging import get_logger, Logger
 
 float_validator = QRegExpValidator(QRegExp('^(-?\d+)(\.\d+)?$'))
 int_validator = QIntValidator(0, 10 ** 9 - 1)
+
+
+_logger = get_logger(__name__)
 
 
 class ParseArgsException(BaseException):
@@ -462,7 +466,7 @@ class ContractCreateLayout(QVBoxLayout):
             self.abi = []
             self.constructor = {}
             self.args_e.setPlaceholderText('')
-            print_error('[interface_changed]', str(e))
+            _logger.info('[interface_changed]', str(e))
 
 
 class ContractCreateDialog(QDialog, MessageBoxMixin):
