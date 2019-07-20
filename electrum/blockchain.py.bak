@@ -22,6 +22,7 @@
 # SOFTWARE.
 import os
 import threading
+import sqlite3
 from typing import Optional, Dict, Mapping, Sequence
 
 from . import util
@@ -35,10 +36,8 @@ from .logging import get_logger, Logger
 
 _logger = get_logger(__name__)
 
-BASIC_HEADER_SIZE = 180  # bytes
-HEADER_SIZE = 252  # bytes
-POW_TARGET = 0x0000FFFF00000000000000000000000000000000000000000000000000000000
-POS_TARGET = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
+HEADER_SIZE = 180  # bytes
+MAX_TARGET = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
 TOKEN_TRANSFER_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
 
@@ -67,10 +66,8 @@ def serialize_header(header_dict: dict) -> str:
 def deserialize_header(s: bytes, height: int) -> dict:
     if not s:
         raise InvalidHeader('Invalid header: {}'.format(s))
-    if len(s) != HEADER_SIZE:
-        raise InvalidHeader('Invalid header length: {}'.format(len(s)))
     hex_to_int = lambda s: int.from_bytes(s, byteorder='little')
-    deserializer = Deserializer(s, start=BASIC_HEADER_SIZE)
+    deserializer = Deserializer(s, start=HEADER_SIZE)
     sig_length = deserializer.read_varint()
     h = {}
     h['version'] = hex_to_int(s[0:4])
@@ -98,20 +95,18 @@ def hash_header(header: dict) -> str:
 def hash_raw_header(header: str) -> str:
     return hash_encode(sha256d(bfh(header)))
 
-def is_pos(header: dict):
+def is_pos(header):
     hash_prevout_stake = header.get('hash_prevout_stake', None)
     hash_prevout_n = header.get('hash_prevout_n', 0)
     return hash_prevout_stake and (
         hash_prevout_stake != '0000000000000000000000000000000000000000000000000000000000000000'
         or hash_prevout_n != 0xffffffff)
 
-def fix_header(header: bytes):
-    if len(header) == HEADER_SIZE - 1:
-        exception_header = header[0:181] + b'\x00' + header[181:251]
-        return exception_header
-    while len(header) < HEADER_SIZE:
-        header += b'\x00'
-    return header
+def read_a_raw_header_from_chunk(data, start):
+    deserializer = Deserializer(data, start=start+HEADER_SIZE)
+    sig_length = deserializer.read_varint()
+    cursor = deserializer.cursor + sig_length
+    return data[start: cursor], cursor
 
 # key: blockhash hex at forkpoint
 # the chain at some key is the best chain that includes the given hash
@@ -180,7 +175,6 @@ def read_blockchains(config: 'SimpleConfig'):
     for filename in l:
         instantiate_chain(filename)
 
-
 def get_best_chain() -> 'Blockchain':
     return blockchains[constants.net.GENESIS]
 
@@ -209,13 +203,50 @@ class Blockchain(Logger):
         self._forkpoint_hash = forkpoint_hash  # blockhash at forkpoint. "first hash"
         self._prev_hash = prev_hash  # blockhash immediately before forkpoint
         self.lock = threading.RLock()
-        self.update_size()
+        self.swaping = threading.Event()
+        self.conn = None
+        self.init_db()
+        with self.lock:
+            self.update_size()
 
     def with_lock(func):
         def func_wrapper(self, *args, **kwargs):
             with self.lock:
                 return func(self, *args, **kwargs)
         return func_wrapper
+
+    def init_db(self):
+        self.conn = sqlite3.connect(self.path(), check_same_thread=False)
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute('CREATE TABLE IF NOT EXISTS header '
+                           '(height INT PRIMARY KEY NOT NULL, data BLOB NOT NULL)')
+            self.conn.commit()
+        except (sqlite3.DatabaseError, ) as e:
+            _logger.info('error when init_db', e, 'will delete the db file and recreate')
+            os.remove(self.path())
+            self.conn = None
+            self.init_db()
+        finally:
+            cursor.close()
+
+    @with_lock
+    def is_valid(self):
+        conn = sqlite3.connect(self.path(), check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute('SELECT min(height), max(height) FROM header')
+        min_height, max_height = cursor.fetchone()
+        max_height = max_height or 0
+        min_height = min_height or 0
+        cursor.execute('SELECT COUNT(*) FROM header')
+        size = int(cursor.fetchone()[0])
+        cursor.close()
+        conn.close()
+        if not min_height == self.forkpoint:
+            return False
+        if size > 0 and not size == max_height - min_height + 1:
+            return False
+        return True
 
     @property
     def checkpoints(self):
@@ -233,8 +264,7 @@ class Blockchain(Logger):
         return mc if mc is not None else self.forkpoint
 
     def get_direct_children(self) -> Sequence['Blockchain']:
-        with blockchains_lock:
-            return list(filter(lambda y: y.parent==self, blockchains.values()))
+        return list(filter(lambda y: y.parent==self, blockchains.values()))
 
     def get_parent_heights(self) -> Mapping['Blockchain', int]:
         """Returns map: (parent chain -> height of last common block)"""
@@ -258,7 +288,6 @@ class Blockchain(Logger):
                 last_common_block_height = max(last_common_block_height, h)
         return last_common_block_height
 
-    @with_lock
     def get_branch_size(self) -> int:
         return self.height() - self.get_max_forkpoint() + 1
 
@@ -289,7 +318,6 @@ class Blockchain(Logger):
                           parent=parent,
                           forkpoint_hash=hash_header(header),
                           prev_hash=parent.get_hash(forkpoint-1))
-        open(self.path(), 'w+').close()
         self.save_header(header)
         # put into global dict. note that in some cases
         # save_header might have already put it there but that's OK
@@ -298,22 +326,27 @@ class Blockchain(Logger):
             blockchains[chain_id] = self
         return self
 
-    @with_lock
     def height(self) -> int:
-        return self.forkpoint + self.size() - 1
+        h = self.forkpoint + self.size() - 1
+#        if h < len(self.checkpoints) * 2016 - 1:
+#            h = h + len(self.checkpoints) * 2016
+        return h
 
-    @with_lock
     def size(self) -> int:
-        return self._size
+        with self.lock:
+            return self._size
 
-    @with_lock
     def update_size(self) -> None:
-        p = self.path()
-        self._size = os.path.getsize(p)//HEADER_SIZE if os.path.exists(p) else 0
+        conn = sqlite3.connect(self.path(), check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM header')
+        count = int(cursor.fetchone()[0])
+        self._size = count
+        cursor.close()
 
     @classmethod
     def verify_header(cls, header: dict, prev_hash: str, target: int, expected_header_hash: str=None) -> None:
-        return # verufy header pass....
+         return # verufy header pass....
 #        _hash = hash_header(header)
 #        if expected_header_hash and expected_header_hash != _hash:
 #            raise Exception("hash mismatches with expected: {} vs {}".format(expected_header_hash, _hash))
@@ -321,8 +354,7 @@ class Blockchain(Logger):
 #            raise Exception("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
 #        if constants.net.TESTNET:
 #            return
-#
-#        bits = cls.target_to_bits(target)
+#     bits = cls.target_to_bits(target)
 #        if bits != header.get('bits'):
 #            raise Exception("bits mismatch: %s vs %s" % (bits, header.get('bits')))
 #
@@ -333,27 +365,20 @@ class Blockchain(Logger):
 #            block_hash_as_num = int.from_bytes(bfh(_hash), byteorder='big')
 #            if block_hash_as_num > target:
 #                raise Exception(f"insufficient proof of work: {block_hash_as_num} vs target {target}")
-#
 
-    def verify_chunk(self, index: int, data: bytes) -> None:
-        num = len(data) // HEADER_SIZE
-        start_height = index * 2016
-        prev_hash = self.get_hash(start_height - 1)
-        headers = {}
-        for i in range(num):
-            height = start_height + i
+    def verify_chunk(self, index: int, raw_headers: bytes) -> None:
+        prev_hash = self.get_hash(index * 2016 - 1)
+        for i, raw_header in enumerate(raw_headers):
+            height = index * 2016 + i
             try:
                 expected_header_hash = self.get_hash(height)
             except MissingHeader:
                 expected_header_hash = None
-            raw_header = data[i*HEADER_SIZE : (i+1)*HEADER_SIZE]
-            header = deserialize_header(raw_header, index*2016 + i)
-            headers[header.get('block_height')] = header
-            target = self.get_target(index*2016 + i, headers)
+            header = deserialize_header(raw_header, height)
+            target = self.get_target(height)
             self.verify_header(header, prev_hash, target, expected_header_hash)
             prev_hash = hash_header(header)
 
-    @with_lock
     def path(self):
         d = util.get_headers_dir(self.config)
         if self.parent is None:
@@ -367,162 +392,171 @@ class Blockchain(Logger):
         return os.path.join(d, filename)
 
     @with_lock
-    def save_chunk(self, index: int, chunk: bytes):
-        assert index >= 0, index
-        chunk_within_checkpoint_region = index < len(self.checkpoints)
-        # chunks in checkpoint region are the responsibility of the 'main chain'
-        if chunk_within_checkpoint_region and self.parent is not None:
-            main_chain = get_best_chain()
-            main_chain.save_chunk(index, chunk)
+    def save_chunk(self, index: int, raw_headers: bytes):
+        _logger.info('{} try to save chunk {}'.format(self.forkpoint, index * 2016))
+        if self.swaping.is_set():
             return
+        try:
+            conn = self.conn
+            cursor = self.conn.cursor()
+        except (sqlite3.ProgrammingError, AttributeError):
+            conn = sqlite3.connect(self.path(), check_same_thread=False)
+            cursor = conn.cursor()
 
-        delta_height = (index * 2016 - self.forkpoint)
-        delta_bytes = delta_height * HEADER_SIZE
-        # if this chunk contains our forkpoint, only save the part after forkpoint
-        # (the part before is the responsibility of the parent)
-        if delta_bytes < 0:
-            chunk = chunk[-delta_bytes:]
-            delta_bytes = 0
-        truncate = not chunk_within_checkpoint_region
-        self.write(chunk, delta_bytes, truncate)
+        forkpoint = self.forkpoint
+        if forkpoint is None:
+            forkpoint = 0
+        headers = [(index * 2016 + i, v)
+                   for i, v in enumerate(raw_headers)
+                   if index * 2016 + i >= forkpoint]
+
+        cursor.executemany('REPLACE INTO header (height, data) VALUES(?,?)', headers)
+        cursor.close()
+        conn.commit()
+        self.update_size()
         self.swap_with_parent()
 
-    def fix_chunk(self, data: bytes):
-        fix_headers = b''
+    def read_chunk(self, data: bytes):
+        raw_headers = []
         cursor = 0
         while cursor < len(data):
-            bytes_header, cursor = self.read_a_raw_header_from_chunk(data, cursor)
-            if not bytes_header:
-                raise Exception('fix_chunk, no header read')
+            raw_header, cursor = read_a_raw_header_from_chunk(data, cursor)
+            if not raw_header:
+                raise Exception('read_chunk, no header read')
+            raw_headers.append(raw_header)
+        return raw_headers
 
-            fixed_header = fix_header(bytes_header)
-            fix_headers += fixed_header
-        return fix_headers
-
-    def read_a_raw_header_from_chunk(self, data: bytes, start: int):
-        deserializer = Deserializer(data, start=start+BASIC_HEADER_SIZE)
-        sig_length = deserializer.read_varint()
-        cursor = deserializer.cursor + sig_length
-        return data[start: cursor], cursor
-
+    @with_lock
     def swap_with_parent(self) -> None:
-        with self.lock, blockchains_lock:
-            # do the swap; possibly multiple ones
-            cnt = 0
-            while True:
-                old_parent = self.parent
-                if not self._swap_with_parent():
-                    break
-                # make sure we are making progress
-                cnt += 1
-                if cnt > len(blockchains):
-                    raise Exception(f'swapping fork with parent too many times: {cnt}')
-                # we might have become the parent of some of our former siblings
-                for old_sibling in old_parent.get_direct_children():
-                    if self.check_hash(old_sibling.forkpoint - 1, old_sibling._prev_hash):
-                        old_sibling.parent = self
+        parent = self.parent
+        if parent is None:
+            return
 
-    def _swap_with_parent(self) -> bool:
-        """Check if this chain became stronger than its parent, and swap
-        the underlying files if so. The Blockchain instances will keep
-        'containing' the same headers, but their ids change and so
-        they will be stored in different files."""
-        if self.parent is None:
-            return False
-        if self.parent.get_chainwork() >= self.get_chainwork():
-            return False
-        self.logger.info(f"swapping {self.forkpoint} {self.parent.forkpoint}")
-        parent_branch_size = self.parent.height() - self.forkpoint + 1
-        forkpoint = self.forkpoint  # type: Optional[int]
-        parent = self.parent  # type: Optional[Blockchain]
-        child_old_id = self.get_id()
-        parent_old_id = parent.get_id()
-        # swap files
-        # child takes parent's name
-        # parent's new name will be something new (not child's old name)
-        self.assert_headers_file_available(self.path())
-        child_old_name = self.path()
-        with open(self.path(), 'rb') as f:
-            my_data = f.read()
-        self.assert_headers_file_available(parent.path())
-        assert forkpoint > parent.forkpoint, (f"forkpoint of parent chain ({parent.forkpoint}) "
-                                              f"should be at lower height than children's ({forkpoint})")
-        with open(parent.path(), 'rb') as f:
-            f.seek((forkpoint - parent.forkpoint)*HEADER_SIZE)
-            parent_data = f.read(parent_branch_size*HEADER_SIZE)
-        self.write(parent_data, 0)
-        parent.write(my_data, (forkpoint - parent.forkpoint)*HEADER_SIZE)
-        # swap parameters
-        self.parent, parent.parent = parent.parent, self  # type: Optional[Blockchain], Optional[Blockchain]
-        self.forkpoint, parent.forkpoint = parent.forkpoint, self.forkpoint
-        self._forkpoint_hash, parent._forkpoint_hash = parent._forkpoint_hash, hash_raw_header(bh2u(parent_data[:HEADER_SIZE]))
-        self._prev_hash, parent._prev_hash = parent._prev_hash, self._prev_hash
-        # parent's new name
-        os.replace(child_old_name, parent.path())
         self.update_size()
         parent.update_size()
-        # update pointers
-        blockchains.pop(child_old_id, None)
-        blockchains.pop(parent_old_id, None)
-        blockchains[self.get_id()] = self
-        blockchains[parent.get_id()] = parent
-        return True
+        parent_branch_size = parent.height() - self.forkpoint + 1
+        if parent_branch_size >= self._size:
+            return
+
+        if self.swaping.is_set() or parent.swaping.is_set():
+            return
+        self.swaping.set()
+        parent.swaping.set()
+
+        parent_id = self.parent.forkpoint
+        forkpoint = self.forkpoint
+        _logger.info(f"forkpoint: {forkpoint}")
+        global blockchains
+        try:
+            _logger.info(f"swap {forkpoint}, {parent_id}")
+            for i in range(forkpoint, forkpoint + self._size):
+                _logger.info(f"swaping {i}")
+                header = self.read_header(i, deserialize=False)
+                parent_header = parent.read_header(i, deserialize=False)
+                parent.write(header, i)
+                if parent_header:
+                    self.write(parent_header, i)
+                else:
+                    self.delete(i)
+        except (BaseException,) as e:
+            import traceback, sys
+            traceback.print_exc(file=sys.stderr)
+            _logger.info(f"Swap Error: {e}")
+        # update size
+        self.update_size()
+        parent.update_size()
+        self.swaping.clear()
+        parent.swaping.clear()
+        _logger.info('swap finished')
+        parent.swap_with_parent()
 
     def get_id(self) -> str:
         return self._forkpoint_hash
 
-    def assert_headers_file_available(self, path):
-        if os.path.exists(path):
+    def write(self, raw_header: bytes, height: int) -> None:
+        if self.forkpoint > 0 and height < self.forkpoint:
             return
-        elif not os.path.exists(util.get_headers_dir(self.config)):
-            raise FileNotFoundError('Electrum headers_dir does not exist. Was it deleted while running?')
-        else:
-            raise FileNotFoundError('Cannot find headers file but headers_dir is there. Should be at {}'.format(path))
+        if not raw_header:
+            if height:
+                self.delete(height)
+            else:
+                self.delete_all()
+            return
+        with self.lock:
+            _logger.info('{} try to write {}'.format(self.forkpoint, height))
+            if height > self._size + self.forkpoint:
+                return
+            try:
+                conn = self.conn
+                cursor = self.conn.cursor()
+            except (sqlite3.ProgrammingError, AttributeError):
+                conn = sqlite3.connect(self.path(), check_same_thread=False)
+                cursor = conn.cursor()
+            cursor.execute('REPLACE INTO header (height, data) VALUES(?,?)', (height, raw_header))
+            cursor.close()
+            conn.commit()
+            self.update_size()
+
+    def delete(self, height: int) -> None:
+        _logger.info('{} try to delete {}'.format(self.forkpoint, height))
+        if self.forkpoint > 0 and height < self.forkpoint:
+            return
+        with self.lock:
+            _logger.info('{} try to delete {}'.format(self.forkpoint, height))
+            try:
+                conn = self.conn
+                cursor = conn.cursor()
+            except (sqlite3.ProgrammingError, AttributeError):
+                conn = sqlite3.connect(self.path(), check_same_thread=False)
+                cursor = conn.cursor()
+            cursor.execute('DELETE FROM header where height=?', (height,))
+            cursor.close()
+            conn.commit()
+            self.update_size()
+
+    def delete_all(self) -> None:
+        if self.swaping.is_set():
+            return
+        with self.lock:
+            try:
+                conn = self.conn
+                cursor = self.conn.cursor()
+            except (sqlite3.ProgrammingError, AttributeError):
+                conn = sqlite3.connect(self.path(), check_same_thread=False)
+                cursor = conn.cursor()
+            cursor.execute('DELETE FROM header')
+            cursor.close()
+            conn.commit()
+            self._size = 0
 
     @with_lock
-    def write(self, data: bytes, offset: int, truncate: bool=True) -> None:
-        filename = self.path()
-        self.assert_headers_file_available(filename)
-        with open(filename, 'rb+') as f:
-            if truncate and offset != self._size * HEADER_SIZE:
-                f.seek(offset)
-                f.truncate()
-            f.seek(offset)
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
-        self.update_size()
-
-    @with_lock
-    def save_header(self, header: dict) -> None:
-        delta = header.get('block_height') - self.forkpoint
+    def save_header(self, header) -> None:
         data = bfh(serialize_header(header))
-        data = fix_header(data)
-        # headers are only _appended_ to the end:
-        assert delta == self.size(), (delta, self.size())
-        assert len(data) == HEADER_SIZE
-        self.write(data, delta*HEADER_SIZE)
+        self.write(data, header.get('block_height'))
         self.swap_with_parent()
 
-    @with_lock
-    def read_header(self, height: int) -> Optional[dict]:
+    def read_header(self, height: int, deserialize=True) -> Optional[dict]:
         if height < 0:
+            return
+        if height > self.height():
             return
         if height < self.forkpoint:
             return self.parent.read_header(height)
-        if height > self.height():
+
+        conn = sqlite3.connect(self.path(), check_same_thread=False)
+        cursor = conn.cursor()
+        cursor.execute('SELECT data FROM header WHERE height=?', (height,))
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if not result or len(result) < 1:
+            _logger.info('read_header 4', height, self.forkpoint, self.parent.forkpoint, result, self.height())
+            self.update_size()
             return
-        delta = height - self.forkpoint
-        name = self.path()
-        self.assert_headers_file_available(name)
-        with open(name, 'rb') as f:
-            f.seek(delta * HEADER_SIZE)
-            h = f.read(HEADER_SIZE)
-            if len(h) < HEADER_SIZE:
-                raise Exception('Expected to read a full header. This was only {} bytes'.format(len(h)))
-        if h == bytes([0])*HEADER_SIZE:
-            return None
-        return deserialize_header(h, height)
+        header = result[0]
+        if deserialize:
+            return deserialize_header(header, height)
+        return header
 
     def header_at_tip(self) -> Optional[dict]:
         """Return latest header."""
@@ -539,148 +573,26 @@ class Blockchain(Logger):
             return '0000000000000000000000000000000000000000000000000000000000000000'
         elif height == 0:
             return constants.net.GENESIS
-        elif is_height_checkpoint():
+        if is_height_checkpoint():
             index = height // 2016
             h, t = self.checkpoints[index]
             return h
-        else:
-            header = self.read_header(height)
-            if header is None:
-                raise MissingHeader(height)
-            return hash_header(header)
+        
+        header = self.read_header(height)
+        if header is None:
+            raise MissingHeader(height)
+        return hash_header(header)
 
-    # eHRC (enhanced Hash Rate Compensation)
-    # Short, medium and long samples averaged together and compared against the target time span.
-    # Adjust every block but limted to 9% change maximum.
-    # Difficulty is calculated separately for PoW and PoS blocks in that PoW skips PoS blocks and vice versa.
-
-    def get_target_ehrc(self, height: int, chain=None) -> int:
-
-        if height == 0:
-            return POS_TARGET
-
-        last = chain.get(height - 1)
-        if last is None:
-            last = self.read_header(height - 1)
-
-        targetLimit = self.get_target_pow_pos(chain)
-        shortSample = 15
-        mediumSample = 200
-        longSample = 1000
-        pindexFirstShortTime = 0
-        pindexFirstMediumTime = 0
-        ActualTimespan = 0
-        ActualTimespanShort = 0
-        ActualTimespanMedium = 0
-        ActualTimespanLong = 0
-        PowTargetTimespan = 120
-        check = last
-        firstlong = last
-        firstlong_height = height - 1
-        check_height = height - 1
-        bnNew = 0
-
-        for i in range(0, longSample + 2, 1):
-            i -= 1
-            if check == None:
-                 return targetLimit
-
-            if is_pos:
-                i += 1
-            else:
-                i += 1
-
-            check_height -= 1
-            check = chain.get(check_height)
-            if check is None:
-                check = self.read_header(check_height)
-
-        if height <= 1000:
-            for i in range(0, longSample):
-                if not firstlong:
-                    break
-
-                firstlong = chain.get(firstlong_height)
-
-                if firstlong is None:
-                    firstlong = self.read_header(firstlong_height)
-
-                if i is shortSample - 1:
-                    pindexFirstShortTime = firstlong.get('timestamp')
-
-                if i is mediumSample - 1:
-                    pindexFirstMediumTime = firstlong.get('timestamp')
-        else:
-            for i in range(0, longSample, 0):
-                if not firstlong:
-                    break
-
-                firstlong = chain.get(firstlong_height)
-
-                if firstlong is None:
-                    firstlong = self.read_header(firstlong_height)
-
-                if i is shortSample - 1:
-                    pindexFirstShortTime = firstlong.get('timestamp')
-
-                if i is mediumSample - 1:
-                    pindexFirstMediumTime = firstlong.get('timestamp')
-
-                i += 1
-
-        if last.get('timestamp') - pindexFirstShortTime != 0:
-            ActualTimespanShort = (last.get('timestamp') - pindexFirstShortTime) // shortSample
-
-        if last.get('timestamp') - pindexFirstMediumTime != 0:
-            ActualTimespanMedium = (last.get('timestamp') - pindexFirstMediumTime) // mediumSample
-
-        if last.get('timestamp') - firstlong.get('timestamp') != 0:
-            ActualTimespanLong = (last.get('timestamp') - firstlong.get('timestamp')) // longSample
-
-        ActualTimespanSum = ActualTimespanShort + ActualTimespanMedium + ActualTimespanLong
-
-        if ActualTimespanSum != 0:
-            ActualTimespan = ActualTimespanSum // 3
-
-        if height - 1 >= 1000:
-            # Apply .25 damping
-            ActualTimespan = ActualTimespan + (3 * PowTargetTimespan)
-            ActualTimespan //= 4
-
-        # 9% difficulty limiter
-        ActualTimespanMax = PowTargetTimespan * 494 // 453
-        ActualTimespanMin = PowTargetTimespan * 453 // 494
-
-        ActualTimespan = max(ActualTimespan, ActualTimespanMin)
-
-        ActualTimespan = min(ActualTimespan, ActualTimespanMax)
-
-        bnNew = self.bits_to_target(last.get('bits'))
-        bnNew *= ActualTimespan;
-        bnNew //= PowTargetTimespan;
-
-        if bnNew <= 0 or bnNew > TargetLimit:
-            bnNew = TargetLimit
-            
-        return bnNew
-
-    def get_target_pow_pos(self, chain=None):
-        target = POS_TARGET
-        if not is_pos(chain):
-            target = POW_TARGET
-        return target
-
-    def get_target(self, height: int, chain=None) -> int:
+    def get_target(self, height: int) -> int:
         # compute target from chunk x, used in chunk x+1
         if constants.net.TESTNET:
             return 0
         elif height // 2016 < len(self.checkpoints) and height % 2016 == 2015:
             h, t = self.checkpoints[height // 2016]
             return t
-        elif height // 2016 < len(self.checkpoints) and height % 2016 != 2015: # or height <= len(self.checkpoints) * 2016 + 1002:
+        elif height // 2016 < len(self.checkpoints) and height % 2016 != 2015:
             return 0
         else:
-#            return self.get_target_ehrc(height, chain)
             return 0
 
     @classmethod
@@ -707,7 +619,7 @@ class Blockchain(Logger):
     def chainwork_of_header_at_height(self, height: int) -> int:
         """work done by single header at given height"""
         chunk_idx = height // 2016 - 1
-        target = self.get_target(height)
+        target = self.get_target(index * 2016)
         work = ((2 ** 256 - target - 1) // (target + 1)) + 1
         return work
 
@@ -755,11 +667,8 @@ class Blockchain(Logger):
         if prev_hash != header.get('prev_block_hash'):
             _logger.info(f"hash check failed {prev_hash}, {header.get('prev_block_hash')}")
             return False
-        headers = {}
-        headers[header.get('block_height')] = header
-        check_header_bool = True
         try:
-            target = self.get_target(height, headers)
+            target = self.get_target(height)
         except MissingHeader:
             _logger.info(f"verify_header failed {height}")
             return False
@@ -771,15 +680,16 @@ class Blockchain(Logger):
         return True
 
     def connect_chunk(self, idx: int, hexdata: str) -> bool:
-        assert idx >= 0, idx
         try:
             data = bfh(hexdata)
-            fixed_data = self.fix_chunk(data)
-            self.verify_chunk(idx, fixed_data)
-            self.save_chunk(idx, fixed_data)
+            raw_heades = self.read_chunk(data)
+            print(raw_heades)
+            self.verify_chunk(idx, raw_heades)
+            # _logger.info("validated chunk %d" % idx)
+            self.save_chunk(idx, raw_heades)
             return True
         except BaseException as e:
-            self.logger.info(f'verify_chunk idx {idx} failed: {repr(e)}')
+            _logger.info(f'connect_chunk failed {str(e)}')
             return False
 
     def get_checkpoints(self):
@@ -796,17 +706,17 @@ class Blockchain(Logger):
 
 def check_header(header: dict) -> Optional[Blockchain]:
     if type(header) is not dict:
+        util.print_frames()
+        _logger.info('header not dic')
         return None
-    with blockchains_lock: chains = list(blockchains.values())
-    for b in chains:
+    for b in blockchains.values():
         if b.check_header(header):
             return b
     return None
 
 
 def can_connect(header: dict) -> Optional[Blockchain]:
-    with blockchains_lock: chains = list(blockchains.values())
-    for b in chains:
+    for b in blockchains.values():
         if b.can_connect(header):
             return b
     return None

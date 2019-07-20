@@ -79,18 +79,45 @@ class Bucket(NamedTuple):
     witness: bool       # whether any coin uses segwit
 
 
-def strip_unneeded(bkts, sufficient_funds):
-    '''Remove buckets that are unnecessary in achieving the spend amount'''
+def strip_unneeded(bkts, sufficient_funds, exception_addr=None) -> list:
+    '''
+    Remove buckets that are unnecessary in achieving the spend amount
+    exception_addr is the address that cannot be removed
+    '''
     if sufficient_funds([], bucket_value_sum=0):
         # none of the buckets are needed
         return []
     bkts = sorted(bkts, key=lambda bkt: bkt.value, reverse=True)
     bucket_value_sum = 0
+
+    # move the exception bucket to the top
+    if exception_addr:
+        for i in range(len(bkts)):
+            if bkts[i].desc == exception_addr:
+                exception_bucket = bkts[i]
+                del bkts[i]
+                bkts.insert(0, exception_bucket)
+                break
+
     for i in range(len(bkts)):
         bucket_value_sum += (bkts[i]).value
         if sufficient_funds(bkts[:i+1], bucket_value_sum=bucket_value_sum):
             return bkts[:i+1]
     raise Exception("keeping all buckets is still not enough")
+
+def strip_unneeded_utxo(bkts, sufficient_funds):
+    '''Remove utxos that are unnecessary in achieving the spend amount'''
+    assert len(bkts) == 1
+    bucket = bkts[0]
+    desc = bucket.desc
+    coins = []
+
+    for coin in bucket.coins:
+        coins.append(coin)
+        new_bucket = make_Bucket(desc, coins)
+        if sufficient_funds([new_bucket], bucket_value_sum=new_bucket.value):
+            return [new_bucket, ]
+    return [bucket, ]
 
 
 class CoinChooserBase(Logger):
@@ -254,7 +281,7 @@ class CoinChooserBase(Logger):
         # Collect the coins into buckets, choose a subset of the buckets
         buckets = self.bucketize_coins(coins)
         buckets = self.choose_buckets(buckets, sufficient_funds,
-                                      self.penalty_func(tx))
+                                      self.penalty_func(tx), sender)
 
         tx.add_inputs([coin for b in buckets for coin in b.coins])
         tx_weight = get_tx_weight(buckets)
@@ -277,11 +304,14 @@ class CoinChooserBase(Logger):
 
         return tx
 
-    def choose_buckets(self, buckets, sufficient_funds, penalty_func):
+    def choose_buckets(self, buckets, sufficient_funds, penalty_func, sender=None):
         raise NotImplemented('To be subclassed')
 
 
 class CoinChooserRandom(CoinChooserBase):
+
+    def keys(self, coins):
+        return [coin['address'] for coin in coins]
 
     def bucket_candidates_any(self, buckets, sufficient_funds):
         '''Returns a list of bucket sets.'''
@@ -357,7 +387,7 @@ class CoinChooserRandom(CoinChooserBase):
         candidates = [(already_selected_buckets + c) for c in candidates]
         return [strip_unneeded(c, sufficient_funds) for c in candidates]
 
-    def choose_buckets(self, buckets, sufficient_funds, penalty_func):
+    def choose_buckets(self, buckets, sufficient_funds, penalty_func, sender=None):
         candidates = self.bucket_candidates_prefer_confirmed(buckets, sufficient_funds)
         penalties = [penalty_func(cand) for cand in candidates]
         winner = candidates[penalties.index(min(penalties))]
@@ -412,6 +442,7 @@ class CoinChooserVIPSTARCOIN(CoinChooserBase):
         buckets.sort(key=lambda b: max(adj_height(coin['height'])
                                        for coin in b.coins))
         selected = []
+        bucket_value_sum = 0
 
         if sender:
             # put sender bucket to selected first
@@ -420,8 +451,9 @@ class CoinChooserVIPSTARCOIN(CoinChooserBase):
                 if bucket.desc == sender:
                     del buckets[i]
                     selected.append(bucket)
+                    bucket_value_sum += bucket.value
                     # check if it's already enough
-                    if sufficient_funds(selected):
+                    if sufficient_funds(selected, bucket_value_sum=bucket_value_sum):
                         return strip_unneeded_utxo(selected, sufficient_funds)
                     break
             if len(selected) == 0:
@@ -429,7 +461,8 @@ class CoinChooserVIPSTARCOIN(CoinChooserBase):
 
         for bucket in buckets:
             selected.append(bucket)
-            if sufficient_funds(selected):
+            bucket_value_sum += bucket.value
+            if sufficient_funds(selected, bucket_value_sum=bucket_value_sum):
                 return strip_unneeded(selected, sufficient_funds, sender)
         else:
             raise NotEnoughFunds()

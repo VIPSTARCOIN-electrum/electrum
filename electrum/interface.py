@@ -391,7 +391,8 @@ class Interface(Logger):
         # use lower timeout as we usually have network.bhi_lock here
         timeout = self.network.get_network_timeout_seconds(NetworkTimeout.Urgent)
         res = await self.session.send_request('blockchain.block.header', [height], timeout=timeout)
-        return blockchain.deserialize_header(bytes.fromhex(res), height)
+        fix_res = blockchain.fix_header(bytes.fromhex(res))
+        return blockchain.deserialize_header(fix_res, height)
 
     async def request_chunk(self, height, tip=None, *, can_return_early=False):
         index = height // 2016
@@ -467,7 +468,8 @@ class Interface(Logger):
             item = await header_queue.get()
             raw_header = item[0]
             height = raw_header['height']
-            header = blockchain.deserialize_header(bfh(raw_header['hex']), height)
+            header_hex = blockchain.fix_header(bfh(raw_header['hex']))
+            header = blockchain.deserialize_header(header_hex, height)
             self.tip_header = header
             self.tip = height
             if self.tip < constants.net.max_checkpoint():

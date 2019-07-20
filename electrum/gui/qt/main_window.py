@@ -2533,7 +2533,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         if not data:
             return
         # if the user scanned a bitcoin URI
-        if str(data).startswith("bitcoin:"):
+        if str(data).startswith("vipstarcoin:"):
             self.pay_to_URI(data)
             return
         # else if the user scanned an offline signed tx

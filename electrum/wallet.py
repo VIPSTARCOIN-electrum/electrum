@@ -46,7 +46,7 @@ from .util import (NotEnoughFunds, UserCancelled, profiler,
                    WalletFileException, BitcoinException,
                    InvalidPassword, format_time, timestamp_to_datetime, Satoshis,
                    Fiat, bfh, bh2u, TxMinedInfo)
-from .bitcoin import (COIN, TYPE_ADDRESS, TYPE_STAKE, is_address, address_to_script,
+from .bitcoin import (COIN, RECOMMEND_CONFIRMATIONS, TYPE_ADDRESS, TYPE_STAKE, is_address, address_to_script,
                       is_minikey, relayfee, dust_threshold)
 from .crypto import sha256d
 from . import keystore
@@ -437,14 +437,14 @@ class Abstract_Wallet(AddressSynchronizer):
     def get_addresses_sort_by_balance(self):
         addrs = []
         for addr in self.get_addresses():
-            c, u, x = self.get_balance(addr)
+            c, u, x = self.get_addr_balance(addr)
             addrs.append((addr, c + u))
         return list([addr[0] for addr in sorted(addrs, key=lambda y: (-int(y[1]), y[0]))])
 
     def get_spendable_addresses(self, min_amount=0.000000001):
         result = []
         for addr in self.get_addresses():
-            c, u, x = self.get_balance(addr)
+            c, u, x = self.get_addr_balance(addr)
             if c >= min_amount:
                 result.append(addr)
         return result
@@ -613,13 +613,13 @@ class Abstract_Wallet(AddressSynchronizer):
             if labels:
                 return ', '.join(labels)
         try:
-            tx = self.transactions.get(tx_hash)
+            tx = self.db.get_transaction(tx_hash)
             if tx.outputs()[0].type == TYPE_STAKE:
                 return _('stake mined')
             elif tx.inputs()[0]['type'] == 'coinbase':
                 return 'coinbase'
         except (BaseException,) as e:
-            self.print_error('get_default_label', e, TYPE_STAKE)
+            _logger.info('get_default_label', e, TYPE_STAKE)
         return ''
 
     def get_tx_status(self, tx_hash, tx_mined_info: TxMinedInfo):
@@ -631,12 +631,12 @@ class Abstract_Wallet(AddressSynchronizer):
         is_mined = False
         tx = None
         try:
-            tx = self.transactions.get(tx_hash)
+            tx = self.db.get_transaction(tx_hash)
             if not tx:
                 tx = self.token_txs.get(tx_hash)
             is_mined = tx.outputs()[0].type == TYPE_STAKE
         except (BaseException,) as e:
-            self.print_error('get_tx_status', e)
+            _logger.info('get_tx_status', e)
         if conf == 0:
             tx = self.db.get_transaction(tx_hash)
             if not tx:

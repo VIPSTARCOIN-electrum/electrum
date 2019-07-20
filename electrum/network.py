@@ -43,14 +43,14 @@ from aiohttp import ClientResponse
 
 from . import util
 from .util import (log_exceptions, ignore_exceptions,
-                   bfh, SilentTaskGroup, make_aiohttp_session, send_exception_to_crash_reporter,
+                   bh2u, bfh, SilentTaskGroup, make_aiohttp_session, send_exception_to_crash_reporter,
                    is_hash256_str, is_non_negative_integer)
 
-from .bitcoin import COIN
+from .bitcoin import COIN, b58_address_to_hash160
 from . import constants
 from . import blockchain
 from . import bitcoin
-from .blockchain import Blockchain, HEADER_SIZE
+from .blockchain import Blockchain, HEADER_SIZE, TOKEN_TRANSFER_TOPIC
 from .interface import (Interface, serialize_server, deserialize_server,
                         RequestTimedOut, NetworkTimeout, BUCKET_NAME_OF_ONION_SERVERS)
 from .version import PROTOCOL_VERSION
@@ -263,6 +263,9 @@ class Network(Logger):
         self.callback_lock = threading.Lock()
         self.recent_servers_lock = threading.RLock()       # <- re-entrant
         self.interfaces_lock = threading.Lock()            # for mutating/iterating self.interfaces
+        self.subscribed_addresses_lock = threading.Lock()
+        self.subscribed_tokens_lock = threading.Lock()
+        self.blockchains_lock = threading.Lock()
 
         self.server_peers = {}  # returned by interface (servers that the main interface knows about)
         self.recent_servers = self._read_recent_servers()  # note: needs self.recent_servers_lock
@@ -275,6 +278,10 @@ class Network(Logger):
 
         dir_path = os.path.join(self.config.path, 'certs')
         util.make_dir(dir_path)
+
+        # subscriptions and requests
+        self.subscribed_addresses = set()   # note: needs self.subscribed_addresses_lock
+        self.subscribed_tokens = set()      # note: needs self.subscribed_tokens_lock
 
         # retry times
         self.server_retry_time = time.time()
@@ -407,11 +414,25 @@ class Network(Logger):
                 relayfee = int(relayfee * COIN)
                 self.relay_fee = max(0, relayfee)
 
+        async def get_addresses():
+            header_queue = asyncio.Queue()
+            with self.subscribed_addresses_lock:
+                for h in self.subscribed_addresses:
+                    await session.subscribe('blockchain.scripthash.subscribe', [h], header_queue)
+
+        async def get_tokens():
+            header_queue = asyncio.Queue()
+            with self.subscribed_tokens_lock:
+                for hash160, contract_addr, topic in self.subscribed_tokens:
+                    await session.subscribe('blockchain.contract.event.subscribe', [hash160, contract_addr, topic], header_queue)
+
         async with TaskGroup() as group:
             await group.spawn(get_banner)
             await group.spawn(get_donation_address)
             await group.spawn(get_server_peers)
             await group.spawn(get_relay_fee)
+            await group.spawn(get_addresses)
+            await group.spawn(get_tokens)
             await group.spawn(self._request_fee_estimates(interface))
 
     async def _request_fee_estimates(self, interface):
@@ -1288,30 +1309,21 @@ class Network(Logger):
                 await group.spawn(get_response(server))
         return responses
 
-    def get_transactions_receipt(self, tx_hashs, callback):
-        command = 'blochchain.transaction.get_receipt'
-        messages = [(command, [tx_hash]) for tx_hash in tx_hashs]
-        invocation = lambda c: self.send(messages, c)
-        return Network.__with_default_synchronous_callback(invocation, callback)
+    async def get_transactions_receipt(self, tx_hashs, callback):
+        for tx_hash in tx_hashs:
+            return await self.interface.session.send_request('blochchain.transaction.get_receipt', [tx_hash])
 
-    def subscribe_tokens(self, tokens, callback):
-        msgs = [(
-            'blockchain.contract.event.subscribe',
-            [bh2u(b58_address_to_hash160(token.bind_addr)[1]), token.contract_addr, TOKEN_TRANSFER_TOPIC])
-            for token in tokens]
-        self.send(msgs, callback)
+    async def subscribe_tokens(self, tokens, callback):
+        for token in tokens:
+            return await self.interface.session.send_request('blockchain.contract.event.subscribe', [bh2u(b58_address_to_hash160(token.bind_addr)[1]), token.contract_addr, TOKEN_TRANSFER_TOPIC])
 
-    def get_token_info(self, contract_addr, callback=None):
-        command = 'blockchain.token.get_info'
-        invocation = lambda c: self.send([(command, [contract_addr, ])], c)
-        return Network.__with_default_synchronous_callback(invocation, callback)
+    async def get_token_info(self, contract_addr):
+        return await self.interface.session.send_request('blockchain.token.get_info', [contract_addr, ])
 
-    def call_contract(self, address, data, sender, callback=None):
-        command = 'blockchain.contract.call'
-        invocation = lambda c: self.send([(command, [address, data, sender])], c)
-        return Network.__with_default_synchronous_callback(invocation, callback)
+    async def call_contract(self, address, data, sender):
+        return await self.interface.session.send_request('blockchain.contract.call', [address, data, sender])
 
-    def request_token_balance(self, token, callback):
+    async def request_token_balance(self, token, callback):
         """
         :type token: Token
         :param callback:
@@ -1320,11 +1332,9 @@ class Network(Logger):
         __, hash160 = b58_address_to_hash160(token.bind_addr)
         hash160 = bh2u(hash160)
         datahex = '70a08231{}'.format(hash160.zfill(64))
-        self.send([('blockchain.contract.call', [token.contract_addr, datahex, '', 'int'])],
-                  callback)
+        return await self.interface.session.send_request('blockchain.contract.call', [token.contract_addr, datahex, '', 'int'])
 
-    def request_token_history(self, token, callback):
+    async def request_token_history(self, token, callback):
         __, hash160 = b58_address_to_hash160(token.bind_addr)
         hash160 = bh2u(hash160)
-        self.send([('blockchain.contract.event.get_history',
-                    [hash160, token.contract_addr, TOKEN_TRANSFER_TOPIC])], callback)
+        return await self.interface.session.send_request('blockchain.contract.event.get_history', [hash160, token.contract_addr, TOKEN_TRANSFER_TOPIC])

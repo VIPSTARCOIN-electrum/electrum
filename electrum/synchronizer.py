@@ -25,6 +25,7 @@
 import asyncio
 import hashlib
 import binascii
+from threading import Lock
 from typing import Dict, List, TYPE_CHECKING, Tuple
 from collections import defaultdict
 import logging
@@ -147,12 +148,16 @@ class Synchronizer(SynchronizerBase):
 
     def _reset(self):
         super()._reset()
+        self.new_addresses = set()
+        self.new_tokens = set()
         self.requested_tx = {}
         self.requested_histories = {}
 	# VIPSTARCOIN (by Qtum)
         self.requested_tx_receipt = {}
         self.requested_token_histories = {}
         self.requested_token_txs = {}
+
+        self.lock = Lock()
 
     def diagnostic_name(self):
         return self.wallet.diagnostic_name()
@@ -164,6 +169,24 @@ class Synchronizer(SynchronizerBase):
                 and not self.requested_tx_receipt
                 and not self.requested_token_histories
                 and not self.requested_token_txs)
+
+    def add(self, address):
+        '''This can be called from the proxy or GUI threads.'''
+        with self.lock:
+            self.new_addresses.add(address)
+
+    def subscribe_to_addresses(self, addresses):
+        if addresses:
+            self.requested_addrs |= addresses
+            self.network.subscribe_to_addresses(addresses, self.on_address_status)
+
+    def get_status(self, h):
+        if not h:
+            return None
+        status = ''
+        for tx_hash, height in h:
+            status += tx_hash + ':%d:' % height
+        return bh2u(hashlib.sha256(status.encode('ascii')).digest())
 
     async def _on_address_status(self, addr, status):
         history = self.wallet.db.get_addr_history(addr)
@@ -214,7 +237,7 @@ class Synchronizer(SynchronizerBase):
             for tx_hash in transaction_hashes:
                 await group.spawn(self._get_transaction(tx_hash, allow_server_not_finding_tx=allow_server_not_finding_tx))
 
-    async def add_token(self, token):
+    def add_token(self, token):
         with self.lock:
             self.new_tokens.add(token)
 
@@ -223,7 +246,7 @@ class Synchronizer(SynchronizerBase):
         :type tokens: set(Token)
         """
         if tokens:
-            self.network.subscribe_tokens(tokens, self.on_token_status)
+            await self.network.subscribe_tokens(tokens, self.on_token_status)
 
     async def get_token_status(self, h):
         if not h:
@@ -370,7 +393,7 @@ class Synchronizer(SynchronizerBase):
         """
         :type token: Token
         """
-        self.network.request_token_balance(token, self.on_token_balance_response)
+        await self.network.request_token_balance(token)
 
     async def on_token_balance_response(self, response):
         params, result = self.parse_response(response)
@@ -437,8 +460,8 @@ class Synchronizer(SynchronizerBase):
         for key in self.wallet.tokens.keys():
             token = self.wallet.tokens[key]
             tokens.add(token)
-            self.get_token_balance(token)
-        self.subscribe_tokens(tokens)
+            await self.get_token_balance(token)
+        await self.subscribe_tokens(tokens)
 
         # add addresses to bootstrap
         for addr in self.wallet.get_addresses():

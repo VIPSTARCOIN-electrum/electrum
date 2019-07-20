@@ -9,6 +9,7 @@ import webbrowser
 
 import datetime
 import binascii
+from enum import IntEnum
 
 from .util import *
 
@@ -23,10 +24,16 @@ from electrum.util import block_explorer_URL, TxMinedInfo
 
 
 class TokenBalanceList(MyTreeView):
-    filter_columns = [0, 1, 2]
+
+    class Columns(IntEnum):
+        NAME = 0
+        BIND_ADDRESS = 1
+        BALANCE = 2
+
+    filter_columns = [Columns.NAME, Columns.BIND_ADDRESS, Columns.BALANCE]
 
     def __init__(self, parent=None):
-        MyTreeView.__init__(self, parent, self.create_menu, 1)
+        super().__init__(parent, self.create_menu, None)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSortingEnabled(True)
         self.setModel(QStandardItemModel(self))
@@ -36,25 +43,42 @@ class TokenBalanceList(MyTreeView):
         item = self.currentIndex()
         current_key = item.data(Qt.UserRole) if item else None
         self.model().clear()
-        self.update_headers([_('Name'), _('Bind Address'), _('Balance')])
+        set_current = None
+        headers = {
+            self.Columns.NAME: _('Name'),
+            self.Columns.BIND_ADDRESS: _('Bind Address'),
+            self.Columns.BALANCE: _('Balance'),
+        }
+        self.update_headers(headers)
         for key in sorted(self.parent.tokens.keys()):
             token = self.parent.tokens[key]
             balance_str = '{}'.format(token.balance / 10 ** token.decimals)
             # balance_str = format_satoshis(token.balance, is_diff=False, num_zeros=0,
             #                               decimal_point=token.decimals, whitespaces=True)
-            item = SortableTreeWidgetItem([token.name, token.bind_addr, balance_str])
-            item.setData(0, Qt.UserRole, token.contract_addr)
-            item.setTextAlignment(0, Qt.AlignLeft | Qt.AlignVCenter)
-            item.setTextAlignment(2, Qt.AlignRight | Qt.AlignVCenter)
-            item.setFont(2, QFont(MONOSPACE_FONT))
-            self.addTopLevelItem(item)
+            labels = [token.name, token.bind_addr, balance_str]
+            item = [QStandardItem(e) for e in labels]
+            item[self.Columns.NAME].setData(token.contract_addr, Qt.UserRole)
+#            item[self.Columns.NAME].setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+#            item[self.Columns.BIND_ADDRESS].setTextAlignment(Qt.AlignCenter)
+#            item[self.Columns.BALANCE].setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            item[self.Columns.BALANCE].setFont(QFont(MONOSPACE_FONT))
+
+            for i, items in enumerate(item):
+#                items.setTextAlignment(Qt.AlignVCenter)
+                if i not in (self.Columns.NAME, self.Columns.BIND_ADDRESS, self.Columns.BALANCE):
+                    items.setFont(QFont(MONOSPACE_FONT))
+                items.setEditable(i in self.editable_columns)
+
+            row_count = self.model().rowCount()
+            self.model().insertRow(row_count, item)
             if key == current_key:
-                self.setCurrentItem(item)
+                idx = self.model().index(row_count, self.Columns.NAME)
+                set_current = QPersistentModelIndex(idx)
         run_hook('update_tokens_tab', self)
 
     def doubleclick(self, item, column):
-        bind_addr = item.text(1)
-        contract_addr = item.data(0, Qt.UserRole)
+        bind_addr = item[self.Columns.BIND_ADDRESS].text()
+        contract_addr = item[self.Columns.NAME].data(Qt.UserRole)
         key = '{}_{}'.format(contract_addr, bind_addr)
         token = self.parent.tokens.get(key, None)
         self.parent.token_send_dialog(token)
@@ -67,9 +91,9 @@ class TokenBalanceList(MyTreeView):
             menu.addAction(_("Add Token"), lambda: self.parent.token_add_dialog())
         elif not multi_select:
             item = selected[0]
-            name = item.text(0)
-            bind_addr = item.text(1)
-            contract_addr = item.data(0, Qt.UserRole)
+            name = item[self.Columns.NAME].text()
+            bind_addr = item[self.Columns.BIND_ADDRESS].text()
+            contract_addr = item[self.Columns.NAME].data(Qt.UserRole)
             key = '{}_{}'.format(contract_addr, bind_addr)
             token = self.parent.tokens.get(key, None)
             column = self.currentColumn()
@@ -117,7 +141,8 @@ class TokenHistoryList(MyTreeView):
             status, status_str = wallet.get_tx_status(txid, tx_mined_status)
             icon = self.icon_cache.get(":icons/" + TX_ICONS[status])
 
-            item = SortableTreeWidgetItem(['', status_str, token.bind_addr, token.symbol, balance_str])
+            labels = ['', status_str, token.bind_addr, token.symbol, balance_str]
+            item = [QStandardItem(e) for e in labels]
             item.setIcon(0, icon)
             item.setToolTip(0, str(conf) + " confirmation" + ("s" if conf != 1 else ""))
             item.setData(0, Qt.UserRole, txid)

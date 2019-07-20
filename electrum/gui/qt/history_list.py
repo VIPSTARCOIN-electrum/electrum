@@ -73,6 +73,10 @@ TX_ICONS = [
     "clock3.png",
     "clock4.png",
     "clock5.png",
+    "clock6.png",
+    "clock7.png",
+    "clock8.png",
+    "clock9.png",
     "confirmed.png",
 ]
 
@@ -486,13 +490,13 @@ class HistoryList(MyTreeView, AcceptFileDragDrop):
         grid = QGridLayout()
         grid.addWidget(QLabel(_("Start")), 0, 0)
         grid.addWidget(QLabel(self.format_date(start_date)), 0, 1)
-        grid.addWidget(QLabel(str(h.get('fiat_start_value')) + '/BTC'), 0, 2)
+        grid.addWidget(QLabel(str(h.get('fiat_start_value')) + '/VIPS'), 0, 2)
         grid.addWidget(QLabel(_("Initial balance")), 1, 0)
         grid.addWidget(QLabel(format_amount(h['start_balance'])), 1, 1)
         grid.addWidget(QLabel(str(h.get('fiat_start_balance'))), 1, 2)
         grid.addWidget(QLabel(_("End")), 2, 0)
         grid.addWidget(QLabel(self.format_date(end_date)), 2, 1)
-        grid.addWidget(QLabel(str(h.get('fiat_end_value')) + '/BTC'), 2, 2)
+        grid.addWidget(QLabel(str(h.get('fiat_end_value')) + '/VIPS'), 2, 2)
         grid.addWidget(QLabel(_("Final balance")), 4, 0)
         grid.addWidget(QLabel(format_amount(h['end_balance'])), 4, 1)
         grid.addWidget(QLabel(str(h.get('fiat_end_balance'))), 4, 2)
@@ -575,7 +579,7 @@ class HistoryList(MyTreeView, AcceptFileDragDrop):
         tx = self.wallet.db.get_transaction(tx_hash)
         if not tx:
             return
-        tx_URL = block_explorer_URL(self.config, 'tx', tx_hash)
+        tx_URL = block_explorer_URL(self.config, {'tx': tx_hash})
         height = self.wallet.get_tx_height(tx_hash).height
         is_relevant, is_mine, v, fee = self.wallet.get_wallet_delta(tx)
         is_unconfirmed = height <= 0

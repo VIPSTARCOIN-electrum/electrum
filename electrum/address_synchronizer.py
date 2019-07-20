@@ -109,7 +109,6 @@ class AddressSynchronizer(Logger):
         return func_wrapper
 
     def load_and_cleanup(self):
-        self.load_transactions()
         self.load_local_history()
         self.load_token_txs()
         self.check_history()
