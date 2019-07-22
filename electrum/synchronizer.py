@@ -451,7 +451,7 @@ class Synchronizer(SynchronizerBase):
             if history == ['*']: continue
             await self._request_missing_txs(history, allow_server_not_finding_tx=True)
 
-	# request missing txns, if tokens
+    	# request missing txns, if tokens
         for history in self.wallet.token_history.values():
             await self.request_missing_tx_receipts(history)
             await self.request_missing_token_txs(history)

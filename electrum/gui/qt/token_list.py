@@ -5,13 +5,9 @@
 __author__ = 'CodeFace'
 """
 
-import webbrowser
-
 import datetime
 import binascii
 from enum import IntEnum
-
-from .util import *
 
 from PyQt5.QtCore import Qt, QPersistentModelIndex, QModelIndex
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QFont
@@ -22,6 +18,7 @@ from electrum.i18n import _
 from electrum.plugin import run_hook
 from electrum.util import block_explorer_URL, TxMinedInfo
 
+from .util import MyTreeView, MONOSPACE_FONT, webopen
 
 class TokenBalanceList(MyTreeView):
 
@@ -40,8 +37,7 @@ class TokenBalanceList(MyTreeView):
         self.update()
 
     def update(self):
-        item = self.currentIndex()
-        current_key = item.data(Qt.UserRole) if item else None
+        current_key = self.current_item_user_role(col=self.Columns.NAME)
         self.model().clear()
         set_current = None
         headers = {
@@ -105,7 +101,7 @@ class TokenBalanceList(MyTreeView):
             menu.addAction(_("Delete"), lambda: self.parent.delete_token(key))
             URL = block_explorer_URL(self.config, {'addr': bind_addr} , {'token': contract_addr})
             if URL:
-                menu.addAction(_("View on block explorer"), lambda: webbrowser.open(URL))
+                menu.addAction(_("View on block explorer"), lambda: webopen(URL))
         run_hook('create_tokens_menu', menu, selected)
         menu.exec_(self.viewport().mapToGlobal(position))
 
@@ -177,6 +173,6 @@ class TokenHistoryList(MyTreeView):
             menu.addAction(_("Copy Transaction ID"), lambda: self.parent.app.clipboard().setText(txid))
             URL = block_explorer_URL(self.config, {'tx': txid})
             if URL:
-                menu.addAction(_("View on block explorer"), lambda: webbrowser.open(URL))
+                menu.addAction(_("View on block explorer"), lambda: webopen(URL))
         run_hook('create_token_hist_menu', menu, selected)
         menu.exec_(self.viewport().mapToGlobal(position))

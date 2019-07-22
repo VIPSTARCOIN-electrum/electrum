@@ -1329,7 +1329,7 @@ class Network(Logger):
     async def call_contract(self, address, data, sender):
         return await self.interface.session.send_request('blockchain.contract.call', [address, data, sender])
 
-    async def request_token_balance(self, token, callback):
+    async def request_token_balance(self, token):
         """
         :type token: Token
         :param callback:
