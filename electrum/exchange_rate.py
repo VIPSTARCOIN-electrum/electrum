@@ -159,7 +159,7 @@ async def _usd_to_fiat(self, usd, ccy, res):
     btcusd = Decimal(ba_json['last'])
     btc = usd / btcusd
     if ccy == 'BTC':
-        res['USD'] = btc
+        res['BTC'] = btc
     if ccy == 'JPY':
         baj_json = await self.get_json('apiv2.bitcoinaverage.com', '/indices/global/ticker/BTCJPY')
         btcjpy = Decimal(baj_json['last'])
@@ -169,7 +169,7 @@ async def _usd_to_fiat(self, usd, ccy, res):
 class CoinGecko(ExchangeBase):
 
     async def get_rates(self, ccy):
-        json = await self.get_json('api.coingecko.com', '/api/v3/simple/price?ids=bitzeny&vs_currencies=btc')
+        json = await self.get_json('api.coingecko.com', '/api/v3/simple/price?ids=vipstarcoin&vs_currencies=btc')
         btc = Decimal(json['bitzeny']['btc'])
 
         res = {}
