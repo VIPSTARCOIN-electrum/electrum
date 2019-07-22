@@ -761,7 +761,7 @@ class Abstract_Wallet(AddressSynchronizer):
         return change_addrs[:max_change]
 
     def make_unsigned_transaction(self, coins, outputs, config, fixed_fee=None,
-                                  change_addr=None, gas_fee=0, sender=None, is_sweep=False):
+                                  change_addr=None, is_sweep=False, gas_fee=0, sender=None):
         # check outputs
         i_max = None
         for i, o in enumerate(outputs):
