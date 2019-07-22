@@ -151,7 +151,7 @@ class Synchronizer(SynchronizerBase):
         self.new_addresses = set()
         self.new_tokens = set()
         self.requested_tx = {}
-        self.requested_histories = {}
+        self.requested_histories = set()
 	# VIPSTARCOIN (by Qtum)
         self.requested_tx_receipt = {}
         self.requested_token_histories = {}
@@ -192,10 +192,10 @@ class Synchronizer(SynchronizerBase):
         history = self.wallet.db.get_addr_history(addr)
         if history_status(history) == status:
             return
-        if addr in self.requested_histories:
+        if (addr, status) in self.requested_histories:
             return
         # request address history
-        self.requested_histories[addr] = status
+        self.requested_histories.add((addr, status))
         h = address_to_scripthash(addr)
         self._requests_sent += 1
         result = await self.network.get_history_for_scripthash(h)
@@ -219,7 +219,7 @@ class Synchronizer(SynchronizerBase):
             await self._request_missing_txs(hist)
 
         # Remove request; this allows up_to_date to be True
-        self.requested_histories.pop(addr)
+        self.requested_histories.discard((addr, status))
 
     async def _request_missing_txs(self, hist, *, allow_server_not_finding_tx=False):
         # "hist" is a list of [tx_hash, tx_height] lists

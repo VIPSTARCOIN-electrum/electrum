@@ -76,7 +76,7 @@ Compile the protobuf description file::
 Create translations (optional)::
 
     sudo apt-get install python-requests gettext
-    ./contrib/make_locale
+    ./contrib/pull_locale
 
 
 
@@ -84,10 +84,16 @@ Create translations (optional)::
 Creating Binaries
 =================
 
-Linux
------
+Linux (tarball)
+---------------
 
 See :code:`contrib/build-linux/README.md`.
+
+
+Linux (AppImage)
+----------------
+
+See :code:`contrib/build-linux/appimage/README.md`.
 
 
 Mac OS X / macOS

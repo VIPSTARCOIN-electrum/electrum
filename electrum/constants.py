@@ -39,6 +39,10 @@ def read_json(filename, default):
     return r
 
 
+GIT_REPO_URL = "https://github.com/VIPSTARCOIN-electrum/electrum-vips"
+GIT_REPO_ISSUES_URL = "https://github.com/VIPSTARCOIN-electrum/electrum-vips/issues"
+
+
 class AbstractNet:
 
     @classmethod
