@@ -287,7 +287,7 @@ class CoinChooserBase(Logger):
 
         return total_weight
 
-    def make_tx(self, coins, inputs, outputs, change_addrs, fee_estimator,
+    def make_tx(self, coins, inputs, outputs, change_addrs, fee_estimator_vb,
                 dust_threshold, sender=None):
         """Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
