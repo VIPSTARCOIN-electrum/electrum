@@ -496,10 +496,9 @@ class Blockchain(Logger):
     @with_lock
     def save_header(self, header: dict) -> None:
         delta = header.get('block_height') - self.forkpoint
-        data = bfh(serialize_header(header))
-        data = fix_header(data)
+        data = fix_header(bfh(serialize_header(header)))
         # headers are only _appended_ to the end:
-        assert delta == self.size(), (delta, self.size())
+        # assert delta == self.size(), (delta, self.size())
         assert len(data) == HEADER_SIZE
         self.write(data, delta*HEADER_SIZE)
         self.swap_with_parent()
@@ -707,7 +706,7 @@ class Blockchain(Logger):
     def chainwork_of_header_at_height(self, height: int) -> int:
         """work done by single header at given height"""
         chunk_idx = height // 2016 - 1
-        target = self.get_target(height)
+        target = self.get_target(index * 2016)
         work = ((2 ** 256 - target - 1) // (target + 1)) + 1
         return work
 
