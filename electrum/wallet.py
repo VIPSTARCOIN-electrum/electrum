@@ -781,7 +781,7 @@ class Abstract_Wallet(AddressSynchronizer):
 
         # Fee estimator
         if fixed_fee is None:
-            fee_estimator = lambda size: config.estimate_fee(size) + gas_fee
+            fee_estimator = config.estimate_fee + gas_fee
         else:
             fee_estimator = lambda size: fixed_fee
 
