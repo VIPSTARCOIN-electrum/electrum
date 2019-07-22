@@ -74,15 +74,15 @@ class AddressSynchronizer(Logger):
         self.transaction_lock = threading.RLock()
         self.token_lock = threading.RLock()	# by Qtum
         # address -> list(txid, height)
-        self.history = storage.get('addr_history',{})
+        self.history = db.get('addr_history',{})
         # Token (by Qtum)
         self.tokens = Tokens(self.storage)
         # contract_addr + '_' + b58addr -> list(txid, height, log_index)
-        self.token_history = storage.get('addr_token_history', {})
+        self.token_history = db.get('addr_token_history', {})
         # txid -> tx receipt
-        self.tx_receipt = storage.get('tx_receipt', {})
+        self.tx_receipt = db.get('tx_receipt', {})
         # Verified transactions.  txid -> TxMinedInfo.  Access with self.lock.
-        verified_tx = storage.get('verified_tx3', {})
+        verified_tx = db.get('verified_tx3', {})
         self.verified_tx = {}  # type: Dict[str, TxMinedInfo]
         for txid, (height, timestamp, txpos, header_hash) in verified_tx.items():
             self.verified_tx[txid] = TxMinedInfo(height=height,

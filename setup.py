@@ -59,7 +59,7 @@ extras_require['full'] = [pkg for sublist in list(extras_require.values()) for p
 
 
 setup(
-    name="Electrum",
+    name="Electrum-VIPS",
     version=version.ELECTRUM_VERSION,
     python_requires='>={}'.format(MIN_PYTHON_VERSION),
     install_requires=requirements,
@@ -85,10 +85,10 @@ setup(
     },
     scripts=['electrum/electrum'],
     data_files=data_files,
-    description="Lightweight Bitcoin Wallet",
-    author="Thomas Voegtlin",
-    author_email="thomasv@electrum.org",
+    description="Lightweight VIPSTARCOIN Wallet",
+    author="y-chan",
+    author_email="yuto_tetuota@yahoo.co.jp",
     license="MIT Licence",
-    url="https://electrum.org",
-    long_description="""Lightweight Bitcoin Wallet""",
+    url="https://electrum-vips.info",
+    long_description="""Lightweight VIPSTARCOIN Wallet""",
 )
