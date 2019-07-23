@@ -46,7 +46,7 @@ from .util import (NotEnoughFunds, UserCancelled, profiler,
                    WalletFileException, BitcoinException,
                    InvalidPassword, format_time, timestamp_to_datetime, Satoshis,
                    Fiat, bfh, bh2u, TxMinedInfo, quantize_feerate)
-from .bitcoin import (COIN, RECOMMEND_CONFIRMATIONS, TYPE_ADDRESS, TYPE_STAKE, is_address, address_to_script,
+from .bitcoin import (COIN, COINBASE_MATURITY, RECOMMEND_CONFIRMATIONS, TYPE_ADDRESS, TYPE_STAKE, is_address, address_to_script,
                       is_minikey, relayfee, dust_threshold)
 from .crypto import sha256d
 from . import keystore
@@ -802,13 +802,12 @@ class Abstract_Wallet(AddressSynchronizer):
                 base_tx.remove_signatures()
                 base_tx.add_inputs_info(self)
                 base_tx_fee = base_tx.get_fee()
-                relayfeerate = Decimal(self.relayfee()) / 1000
+                relayfeerate = self.relayfee() / 1000
                 original_fee_estimator = fee_estimator
-                def fee_estimator(size: Union[int, float, Decimal]) -> int:
-                    size = Decimal(size)
+                def fee_estimator(size: int) -> int:
                     lower_bound = base_tx_fee + round(size * relayfeerate)
                     lower_bound = lower_bound if not is_local else 0
-                    return int(max(lower_bound, original_fee_estimator(size)))
+                    return max(lower_bound, original_fee_estimator(size))
                 txi = base_tx.inputs()
                 txo = list(filter(lambda o: not self.is_change(o.address), base_tx.outputs()))
                 old_change_addrs = [o.address for o in base_tx.outputs() if self.is_change(o.address)]
@@ -821,13 +820,7 @@ class Abstract_Wallet(AddressSynchronizer):
             tx = coin_chooser.make_tx(coins, txi, outputs[:] + txo, change_addrs,
                                       fee_estimator, self.dust_threshold(), sender)
         else:
-            # "spend max" branch
-            # note: This *will* spend inputs with negative effective value (if there are any).
-            #       Given as the user is spending "max", and so might be abandoning the wallet,
-            #       try to include all UTXOs, otherwise leftover might remain in the UTXO set
-            #       forever. see #5433
-            # note: Actually it might be the case that not all UTXOs from the wallet are
-            #       being spent if the user manually selected UTXOs.
+            # FIXME?? this might spend inputs with negative effective value...
             sendable = sum(map(lambda x:x['value'], coins))
             outputs[i_max] = outputs[i_max]._replace(value=0)
             tx = Transaction.from_io(coins, outputs[:])

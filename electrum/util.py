@@ -655,9 +655,9 @@ def time_difference(distance_in_time, include_seconds):
         return "over %d years" % (round(distance_in_minutes / 525600))
 
 mainnet_block_explorers = {
-    'explorer.vipstarcoin.jp': ('http://explorer.vipstarcoin.jp',
+    'explorer.vipstarcoin.jp': ('http://explorer.vipstarcoin.jp/',
 			{'tx': 'tx', 'addr': 'address'}),
-    'vips.blockbook.japanesecoin-pool.work': ('https://vips.blockbook.japanesecoin-pool.work',
+    'vips.blockbook.japanesecoin-pool.work': ('https://vips.blockbook.japanesecoin-pool.work/',
 			{'tx': 'tx', 'addr': 'address'}),
     'insight.vipstarco.in': ('https://insight.vipstarco.in/',
 			{'tx': 'tx', 'addr': 'address', 'contract': 'contract'}),
@@ -672,7 +672,7 @@ def block_explorer_info():
 
 def block_explorer(config: 'SimpleConfig') -> str:
     from . import constants
-    default_ = 'Blockstream.info'
+    default_ = 'insight.vipstarco.in'
     be_key = config.get('block_explorer', default_)
     be = block_explorer_info().get(be_key)
     return be_key if be is not None else default_
@@ -692,12 +692,9 @@ def block_explorer_URL(config: 'SimpleConfig', params) -> Optional[str]:
 
     token = params.get('token')
     addr = params.get('addr')
-
     if token:
-        if 'vipstarcoin.org' in be_tuple[0]:
+        if 'insight.vipstarco.in' in be_tuple[0]:
             return "{}/token/{}?a={}".format(be_tuple[0], token, addr)
-        if 'vipstarcoin.info' in be_tuple[0]:
-            return "{}/address/{}/token-balance?tokens={}".format(be_tuple[0], addr, token)
 
     url_parts = [be_tuple[0], ]
     for k, v in params.items():

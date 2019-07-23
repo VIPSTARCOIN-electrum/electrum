@@ -13,10 +13,11 @@ from PyQt5.QtCore import Qt, QPersistentModelIndex, QModelIndex
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QFont
 from PyQt5.QtWidgets import QAbstractItemView, QComboBox, QLabel, QMenu
 
-from electrum.bitcoin import hash160_to_p2pkh
+from electrum.bitcoin import hash160_to_p2pkh, is_address
 from electrum.i18n import _
 from electrum.plugin import run_hook
 from electrum.util import block_explorer_URL, TxMinedInfo
+from electrum.wallet import InternalAddressCorruption
 
 from .util import MyTreeView, MONOSPACE_FONT, webopen
 
@@ -30,7 +31,7 @@ class TokenBalanceList(MyTreeView):
     filter_columns = [Columns.NAME, Columns.BIND_ADDRESS, Columns.BALANCE]
 
     def __init__(self, parent=None):
-        super().__init__(parent, self.create_menu, None)
+        super().__init__(parent, self.create_menu, stretch_column=self.Columns.BIND_ADDRESS)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setSortingEnabled(True)
         self.setModel(QStandardItemModel(self))
@@ -54,13 +55,11 @@ class TokenBalanceList(MyTreeView):
             labels = [token.name, token.bind_addr, balance_str]
             item = [QStandardItem(e) for e in labels]
             item[self.Columns.NAME].setData(token.contract_addr, Qt.UserRole)
-#            item[self.Columns.NAME].setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-#            item[self.Columns.BIND_ADDRESS].setTextAlignment(Qt.AlignCenter)
-#            item[self.Columns.BALANCE].setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            item[self.Columns.NAME].setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            item[self.Columns.BALANCE].setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             item[self.Columns.BALANCE].setFont(QFont(MONOSPACE_FONT))
 
             for i, items in enumerate(item):
-#                items.setTextAlignment(Qt.AlignVCenter)
                 if i not in (self.Columns.NAME, self.Columns.BIND_ADDRESS, self.Columns.BALANCE):
                     items.setFont(QFont(MONOSPACE_FONT))
                 items.setEditable(i in self.editable_columns)
@@ -72,42 +71,63 @@ class TokenBalanceList(MyTreeView):
                 set_current = QPersistentModelIndex(idx)
         run_hook('update_tokens_tab', self)
 
-    def doubleclick(self, item, column):
-        bind_addr = item[self.Columns.BIND_ADDRESS].text()
-        contract_addr = item[self.Columns.NAME].data(Qt.UserRole)
+    def mouseDoubleClickEvent(self, item):
+        bind_addr = self.model().itemFromIndex(self.selected_in_column(self.Columns.BIND_ADDRESS)[0]).text()
+        contract_addr = self.model().itemFromIndex(self.selected_in_column(self.Columns.NAME)[0]).data(Qt.UserRole)
         key = '{}_{}'.format(contract_addr, bind_addr)
         token = self.parent.tokens.get(key, None)
         self.parent.token_send_dialog(token)
 
     def create_menu(self, position):
         menu = QMenu()
-        selected = self.selectedIndexes()
+        selected = self.selected_in_column(self.Columns.NAME)
         multi_select = len(selected) > 1
         if not selected:
             menu.addAction(_("Add Token"), lambda: self.parent.token_add_dialog())
         elif not multi_select:
-            item = selected[0]
-            name = item[self.Columns.NAME].text()
-            bind_addr = item[self.Columns.BIND_ADDRESS].text()
-            contract_addr = item[self.Columns.NAME].data(Qt.UserRole)
+            name = self.model().itemFromIndex(self.selected_in_column(self.Columns.NAME)[0]).text()
+            bind_addr = self.model().itemFromIndex(self.selected_in_column(self.Columns.BIND_ADDRESS)[0]).text()
+            contract_addr = self.model().itemFromIndex(self.selected_in_column(self.Columns.NAME)[0]).data(Qt.UserRole)
             key = '{}_{}'.format(contract_addr, bind_addr)
             token = self.parent.tokens.get(key, None)
-            column = self.currentColumn()
-            column_title = self.headerItem().text(column)
-            column_data = '\n'.join([item.text(column) for item in selected])
-            menu.addAction(_("Copy {}").format(column_title), lambda: self.parent.app.clipboard().setText(column_data))
+            idx = self.indexAt(position)
+            if not idx.isValid():
+                return
+            col = idx.column()
+            item = self.model().itemFromIndex(idx)
+            column_title = self.model().horizontalHeaderItem(col).text()
+            copy_text = self.model().itemFromIndex(idx).text()
+            if col == self.Columns.BALANCE:
+                copy_text = copy_text.strip()
+            menu.addAction(_("Copy {}").format(column_title), lambda: self.place_text_on_clipboard(copy_text))
             menu.addAction(_("View Info"), lambda: self.parent.token_view_dialog(token))
             menu.addAction(_("Send"), lambda: self.parent.token_send_dialog(token))
             menu.addAction(_("Delete"), lambda: self.parent.delete_token(key))
-            URL = block_explorer_URL(self.config, {'addr': bind_addr} , {'token': contract_addr})
+            URL = block_explorer_URL(self.config, {'addr': bind_addr, 'token': contract_addr})
             if URL:
                 menu.addAction(_("View on block explorer"), lambda: webopen(URL))
         run_hook('create_tokens_menu', menu, selected)
         menu.exec_(self.viewport().mapToGlobal(position))
 
+    def place_text_on_clipboard(self, text):
+        if is_address(text):
+            try:
+                self.wallet = self.parent.wallet
+                self.wallet.check_address(text)
+            except InternalAddressCorruption as e:
+                self.parent.show_error(str(e))
+                raise
+        self.parent.app.clipboard().setText(text)
 
 class TokenHistoryList(MyTreeView):
-    filter_columns = [0, 1, 2]
+    class Columns(IntEnum):
+        DATA = 0
+        BIND_ADDRESS = 1
+        TOKEN = 2
+        AMOUNT = 3
+
+    filter_columns = [Columns.DATA, Columns.BIND_ADDRESS, Columns.TOKEN, Columns.AMOUNT]
+
 
     def __init__(self, parent=None):
         MyTreeView.__init__(self, parent, self.create_menu, 2)
@@ -121,7 +141,13 @@ class TokenHistoryList(MyTreeView):
         item = self.currentIndex()
         current_key = item.data(Qt.UserRole) if item else None
         self.model().clear()
-        self.update_headers([_('Date'), _('Bind Address'), _('Token'), _('Amount')])
+        headers = {
+            self.Columns.DATA: _('Date'),
+            self.Columns.BIND_ADDRESS: _('Bind Address'),
+            self.Columns.TOKEN: _('Token'),
+            self.Columns.AMOUNT: _('Amount'),
+        }
+        self.update_headers(headers)
         for hist in wallet.get_token_history():
             _from, to, amount, token, txid, height, conf, timestamp, call_index, log_index = hist
             payout = False
@@ -151,7 +177,7 @@ class TokenHistoryList(MyTreeView):
                 item.setForeground(4, QBrush(QColor("#BC1E1E")))
         run_hook('update_token_hist_tab', self)
 
-    def doubleclick(self, item, column):
+    def mouseDoubleClickEvent(self, item):
         pass
 
     def format_date(self, d):
@@ -159,7 +185,7 @@ class TokenHistoryList(MyTreeView):
 
     def create_menu(self, position):
         menu = QMenu()
-        selected = self.selectedIndexes()
+        selected = self.selected_in_column(1)
         multi_select = len(selected) > 1
         if not selected:
             pass

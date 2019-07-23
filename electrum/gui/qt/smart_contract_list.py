@@ -60,9 +60,9 @@ class SmartContractList(MyTreeView):
         self.update_headers([_('Name'), _('Address')])
         for address in sorted(self.parent.smart_contracts.keys()):
             name, abi = self.parent.smart_contracts[address]
-            item = SortableTreeWidgetItem([name, address])
+            item = QTreeWidgetItem([name, address])
             item.setData(0, Qt.UserRole, address)
-            self.addTopLevelItem(item)
+            self.addTopLevelIndex(item)
             if address == current_key:
-                self.setCurrentItem(item)
+                self.setCurrentIndex(item)
         run_hook('update_smart_contract_tab', self)
