@@ -83,7 +83,7 @@ setup(
             'icons/*',
         ],
     },
-    scripts=['electrum/electrum'],
+    scripts=['electrum/electrum-vips'],
     data_files=data_files,
     description="Lightweight VIPSTARCOIN Wallet",
     author="y-chan",
