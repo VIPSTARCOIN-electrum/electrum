@@ -501,7 +501,7 @@ class Blockchain(Logger):
         delta = header.get('block_height') - self.forkpoint
         data = fix_header(bfh(serialize_header(header)))
         # headers are only _appended_ to the end:
-        assert delta == self.size(), (delta, self.size())
+#        assert delta == self.size(), (delta, self.size())
         assert len(data) == HEADER_SIZE
         filename = self.path()
         size = os.path.getsize(filename) if os.path.exists(filename) else 0

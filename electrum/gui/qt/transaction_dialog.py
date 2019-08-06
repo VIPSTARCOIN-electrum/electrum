@@ -549,10 +549,10 @@ class TokenTxDialog(QDialog, MessageBoxMixin):
             self.block_height_label.hide()
         if amount is None:
             amount_str = _("Transaction unrelated to your wallet")
-        elif self.tx_item['to_addr'] is self.tx_item['bind_addr']:
+        elif self.tx_item['to_addr'] == self.tx_item['bind_addr']:
             amount_str = _("Amount received ") + token_unit + ':' + ' %s'% amount + ' ' + token_unit
         else:
-            amount_str = _("Amount sent ") + token_unit + ':' + ' -' + '%s'% amount + ' ' + token_unit
+            amount_str = _("Amount sent ") + token_unit + ':' + ' %s'% amount + ' ' + token_unit
         size_str = _("Size:") + ' %d bytes'% size
         self.amount_label.setText(amount_str)
         self.size_label.setText(size_str)

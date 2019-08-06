@@ -9,12 +9,18 @@ ZBAR_FILENAME=zbarw-20121031-setup.exe
 ZBAR_URL=https://sourceforge.net/projects/zbarw/files/$ZBAR_FILENAME/download
 ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 
+LIB_GCC_FILENAME=libgcc-6.3.0-1-mingw32-dll-1.tar.xz
+LIB_GCC_URL=https://netix.dl.sourceforge.net/project/mingw/MinGW/Base/gcc/Version6/gcc-6.3.0/$LIB_GCC_FILENAME
+LIB_GCC_SHA256=8cbfa963f645cc0f81c08df2a3ecbcefc776606f0fb9db7a280d79f05209a1c3
+
 LIBUSB_FILENAME=libusb-1.0.22.7z
 LIBUSB_URL=https://prdownloads.sourceforge.net/project/libusb/libusb-1.0/libusb-1.0.22/$LIBUSB_FILENAME?download
 LIBUSB_SHA256=671f1a420757b4480e7fadc8313d6fb3cbb75ca00934c417c1efa6e77fb8779b
 
 PYINSTALLER_REPO="https://github.com/SomberNight/pyinstaller.git"
 PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
+
+CYTOOLZ_URL="https://github.com/y-chan/cytoolz/releases/download/0.10.0/cytoolz-0.10.0-cp36-cp36m-win32.whl"
 # ^ tag 3.4, plus a custom commit that fixes cross-compilation with MinGW
 
 PYTHON_VERSION=3.6.8
@@ -75,6 +81,15 @@ download_if_not_exist "$CACHEDIR/$LIBUSB_FILENAME" "$LIBUSB_URL"
 verify_hash "$CACHEDIR/$LIBUSB_FILENAME" "$LIBUSB_SHA256"
 7z x -olibusb "$CACHEDIR/$LIBUSB_FILENAME" -aoa
 cp libusb/MS32/dll/libusb-1.0.dll $WINEPREFIX/drive_c/$PYTHON_FOLDER/
+
+download_if_not_exist $LIB_GCC_FILENAME "$LIB_GCC_URL"
+verify_hash $LIB_GCC_FILENAME $LIB_GCC_SHA256
+tar Jxfv $LIB_GCC_FILENAME
+
+cp bin/libgcc_s_dw2-1.dll $WINEPREFIX/drive_c/$PYTHON_FOLDER/Lib/site-packages/
+
+# install cytoolz
+$PYTHON -m pip install $CYTOOLZ_URL
 
 mkdir -p $WINEPREFIX/drive_c/tmp
 cp "$CACHEDIR/secp256k1/libsecp256k1.dll" $WINEPREFIX/drive_c/tmp/
