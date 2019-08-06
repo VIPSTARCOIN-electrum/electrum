@@ -33,6 +33,8 @@ import weakref
 import csv
 from decimal import Decimal
 import base64
+import binascii
+import eth_abi
 from functools import partial
 import queue
 import asyncio
@@ -50,7 +52,8 @@ from PyQt5.QtWidgets import (QMessageBox, QComboBox, QSystemTrayIcon, QTabWidget
 import electrum
 from electrum import (keystore, simple_config, ecc, constants, util, bitcoin, commands,
                       coinchooser, paymentrequest)
-from electrum.bitcoin import COIN, is_address, TYPE_ADDRESS, TYPE_SCRIPT, is_hash160, eth_abi_encode
+from electrum.bitcoin import COIN, is_address, TYPE_ADDRESS, TYPE_SCRIPT, is_hash160, b58_address_to_hash160, eth_abi_encode
+from electrum.crypto import hash_160
 from electrum.plugin import run_hook
 from electrum.i18n import _
 from electrum.util import (format_time, format_satoshis, format_fee_satoshis,
@@ -73,12 +76,13 @@ from electrum.simple_config import SimpleConfig
 from electrum.tokens import Token
 from electrum.logging import Logger
 from electrum.paymentrequest import PR_PAID
+from electrum.plugins.trezor.trezor import TrezorKeyStore
 
 from .exception_window import Exception_Hook
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit, FeerateEdit
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
-from .transaction_dialog import show_transaction
+from .transaction_dialog import show_transaction, show_token_transaction
 from .fee_slider import FeeSlider
 from .util import (read_QIcon, ColorScheme, text_dialog, icon_path, WaitingDialog,
                    WindowModalDialog, ChoicesLayout, HelpLabel, FromList, Buttons,
@@ -137,6 +141,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.network = gui_object.daemon.network  # type: Network
         assert wallet, "no wallet"
         self.wallet = wallet
+        self.addresses = wallet.get_addresses_sort_by_balance()
         self.fx = gui_object.daemon.fx  # type: FxThread
         self.invoices = wallet.invoices
         self.contacts = wallet.contacts
@@ -177,13 +182,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.utxo_tab = self.create_utxo_tab()
         self.console_tab = self.create_console_tab()
         self.contacts_tab = self.create_contacts_tab()
-        self.tokens_tab = self.create_tokens_tab()
-        self.smart_contract_tab = self.create_smart_contract_tab()
+        try:
+            addr_type, __ = b58_address_to_hash160(self.addresses[0])
+        except:
+            addr_type = constants.net.SEGWIT_HRP
+        if not isinstance(self.wallet.keystore, TrezorKeyStore) and addr_type == constants.net.ADDRTYPE_P2PKH and not self.wallet.is_watching_only():
+            self.tokens_tab = self.create_tokens_tab()
+            self.smart_contract_tab = self.create_smart_contract_tab()
         tabs.addTab(self.create_history_tab(), read_QIcon("tab_history.png"), _('History'))
         tabs.addTab(self.send_tab, read_QIcon("tab_send.png"), _('Send'))
         tabs.addTab(self.receive_tab, read_QIcon("tab_receive.png"), _('Receive'))
-        tabs.addTab(self.tokens_tab, read_QIcon("tab_contacts.png"), _('Tokens'))
-        tabs.addTab(self.contacts_tab, read_QIcon("tab_contacts.png"), _('Contacts'))
+        if not isinstance(self.wallet.keystore, TrezorKeyStore) and addr_type == constants.net.ADDRTYPE_P2PKH and not self.wallet.is_watching_only():
+            tabs.addTab(self.tokens_tab, read_QIcon("tab_tokens.png"), _('Tokens'))
 
         def add_optional_tab(tabs, tab, icon, description, name):
             tab.tab_icon = icon
@@ -197,7 +207,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         add_optional_tab(tabs, self.utxo_tab, read_QIcon("tab_coins.png"), _("Co&ins"), "utxo")
         add_optional_tab(tabs, self.contacts_tab, read_QIcon("tab_contacts.png"), _("Con&tacts"), "contacts")
         add_optional_tab(tabs, self.console_tab, read_QIcon("tab_console.png"), _("Con&sole"), "console")
-        add_optional_tab(tabs, self.smart_contract_tab, read_QIcon("tab_console.png"), _('Smart &Contract'), "contract")
+        if not isinstance(self.wallet.keystore, TrezorKeyStore) and addr_type == constants.net.ADDRTYPE_P2PKH and not self.wallet.is_watching_only():
+            add_optional_tab(tabs, self.smart_contract_tab, read_QIcon("tab_contract.png"), _('Smart &Contract'), "contract")
 
         tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setCentralWidget(tabs)
@@ -222,6 +233,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.payment_request_ok_signal.connect(self.payment_request_ok)
         self.payment_request_error_signal.connect(self.payment_request_error)
         self.history_list.setFocus(True)
+        self.token_hist_list.setFocus(True)
 
         # network callbacks
         if self.network:
@@ -298,8 +310,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.new_fx_token_signal.emit()
 
     def on_fx_token(self):
-        self.token_balance_list.update()
         self.token_hist_list.update()
+        self.token_hist_model.refresh('fx_token')
+        self.token_balance_list.update()
 
     def toggle_tab(self, tab):
         show = not self.config.get('show_{}_tab'.format(tab.tab_name), False)
@@ -484,6 +497,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             msg = ' '.join([
                 _("This wallet is watching-only."),
                 _("This means you will not be able to spend Bitcoins with it."),
+                _("And you can't spend tokens."),
                 _("Make sure you own the seed phrase or the private keys, before you request Bitcoins to be sent to this wallet.")
             ])
             self.show_warning(msg, title=_('Watch-only wallet'))
@@ -512,6 +526,34 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.show_warning(msg, title=_('Testnet'), checkbox=cb)
         if cb_checked:
             self.config.set_key('dont_show_testnet_warning', True)
+
+    def warn_if_trezor_and_not_p2pkh(self):
+        try:
+            addr_type, __ = b58_address_to_hash160(self.addresses[0])
+        except:
+            addr_type = constants.net.SEGWIT_HRP
+        if not isinstance(self.wallet.keystore, TrezorKeyStore) and addr_type == constants.net.ADDRTYPE_P2PKH or self.wallet.is_watching_only():
+            return
+        # user might have opted out already
+        if self.config.get('dont_show_trezor_and_not_p2pkh_warning', False):
+            return
+        # only show once per process lifecycle
+        if getattr(self.gui_object, '_warned_trezor_and_not_p2pkh', False):
+            return
+        self.gui_object._warned_trezor_and_not_p2pkh = True
+        msg = ''.join([
+            _("You are using Trezor or SegWit Address."), '\n',
+            _("Smart contracts and tokens can not be used with Trezor and SegWit Address.")
+        ])
+        cb = QCheckBox(_("Don't show this again."))
+        cb_checked = False
+        def on_cb(x):
+            nonlocal cb_checked
+            cb_checked = x == Qt.Checked
+        cb.stateChanged.connect(on_cb)
+        self.show_warning(msg, title=_('Electrum for VIPSTARCOIN - Alert'), checkbox=cb)
+        if cb_checked:
+            self.config.set_key('dont_show_trezor_and_not_p2pkh_warning', True)
 
     def open_wallet(self):
         try:
@@ -614,12 +656,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         invoices_menu.addAction(_("Import"), lambda: self.invoice_list.import_invoices())
         invoices_menu.addAction(_("Export"), lambda: self.invoice_list.export_invoices())
 
-        token_menu = wallet_menu.addMenu(_("&Token"))
-        token_menu.addAction(_("Add Token"), lambda: self.token_add_dialog())
+        try:
+            addr_type, __ = b58_address_to_hash160(self.addresses[0])
+        except:
+            addr_type = constants.net.SEGWIT_HRP
+        if not isinstance(self.wallet.keystore, TrezorKeyStore) and addr_type == constants.net.ADDRTYPE_P2PKH and not self.wallet.is_watching_only():
+            token_menu = wallet_menu.addMenu(_("&Token"))
+            token_menu.addAction(_("Add Token"), lambda: self.token_add_dialog())
 
-        smart_cotract_menu = wallet_menu.addMenu(_("&Smart Contract"))
-        smart_cotract_menu.addAction(_("Add Contract"), lambda: self.contract_add_dialog())
-        smart_cotract_menu.addAction(_("Create Contract"), lambda: self.contract_create_dialog())
+            smart_cotract_menu = wallet_menu.addMenu(_("&Smart Contract"))
+            smart_cotract_menu.addAction(_("Add Contract"), lambda: self.contract_add_dialog())
+            smart_cotract_menu.addAction(_("Create Contract"), lambda: self.contract_create_dialog())
 
         wallet_menu.addSeparator()
         wallet_menu.addAction(_("Find"), self.toggle_search).setShortcut(QKeySequence("Ctrl+F"))
@@ -634,7 +681,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         add_toggle_action(view_menu, self.utxo_tab)
         add_toggle_action(view_menu, self.contacts_tab)
         add_toggle_action(view_menu, self.console_tab)
-        add_toggle_action(view_menu, self.smart_contract_tab)
+        try:
+            addr_type, __ = b58_address_to_hash160(self.addresses[0])
+        except:
+            addr_type = constants.net.SEGWIT_HRP
+        if not isinstance(self.wallet.keystore, TrezorKeyStore) and addr_type == constants.net.ADDRTYPE_P2PKH and not self.wallet.is_watching_only():
+            add_toggle_action(view_menu, self.smart_contract_tab)
 
         tools_menu = menubar.addMenu(_("&Tools"))
 
@@ -898,9 +950,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.address_list.update()
         self.utxo_list.update()
         self.contact_list.update()
-        self.token_balance_list.update()
-        self.token_hist_list.update()
-        self.smart_contract_list.update()
+        try:
+            addr_type, __ = b58_address_to_hash160(self.addresses[0])
+        except:
+            addr_type = constants.net.SEGWIT_HRP
+        if not isinstance(self.wallet.keystore, TrezorKeyStore) and addr_type == constants.net.ADDRTYPE_P2PKH and not self.wallet.is_watching_only():
+            self.token_balance_list.update()
+            self.token_hist_list.update()
+            self.token_hist_model.refresh('update_tabs')
+            self.smart_contract_list.update()
         self.invoice_list.update()
         self.update_completions()
 
@@ -922,6 +980,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
     def show_transaction(self, tx, tx_desc = None):
         '''tx_desc is set only for txs created in the Send tab'''
         show_transaction(tx, self, tx_desc)
+
+    def show_token_transaction(self, tx_item, token):
+        show_token_transaction(tx_item, self, token)
 
     def create_receive_tab(self):
         # A 4-column grid layout.  All the stretch is in the last column.
@@ -1976,6 +2037,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         from .smart_contract_list import SmartContractList
         self.smart_contract_list = l = SmartContractList(self)
         return self.create_list_tab(l)
+
+    def create_tokens_tab(self):
+        from .token_list import TokenBalanceList, TokenHistoryModel, TokenHistoryList
+        self.token_balance_list = tbl = TokenBalanceList(self)
+        self.token_hist_model = TokenHistoryModel(self)
+        self.token_hist_list = thl = TokenHistoryList(self, self.token_hist_model)
+        self.token_hist_model.set_view(self.token_hist_list)
+        thl.searchable_list = thl
+        splitter = QSplitter(self)
+        splitter.addWidget(tbl)
+        splitter.addWidget(self.create_list_tab(thl))
+        splitter.setOrientation(Qt.Vertical)
+        return splitter
 
     def create_contacts_tab(self):
         from .contact_list import ContactList
@@ -3519,50 +3593,40 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             win.msg_box(QPixmap(icon_path("offline_tx.png")), None, _('Success'), msg)
             return True
 
-
-    def create_tokens_tab(self):
-        from .token_list import TokenBalanceList, TokenHistoryList
-        self.token_balance_list = tbl = TokenBalanceList(self)
-        self.token_hist_list = thl = TokenHistoryList(self)
-        splitter = QSplitter(self)
-        splitter.addWidget(tbl)
-        splitter.addWidget(thl)
-        splitter.setOrientation(Qt.Vertical)
-        return splitter
-
-    def set_token(self, token: Token):
+    def set_token(self, token):
         self.wallet.add_token(token)
         self.token_balance_list.update()
         self.token_hist_list.update()
+        self.token_hist_model.refresh('set_token')
 
     def delete_token(self, key: str):
         if not self.question(_("Remove {} from your list of tokens?".format(
-                self.tokens[key].name))):
+                self.wallet.db.get_token(key)[2]))):
             return False
         self.wallet.delete_token(key)
         self.token_balance_list.update()
-        self.token_hist_list.update()
+        self.token_hist_model.refresh('remove_token')
 
     def token_add_dialog(self):
         d = TokenAddDialog(self)
         d.show()
 
-    def token_view_dialog(self, token: Token):
+    def token_view_dialog(self, token):
         d = TokenInfoDialog(self, token)
         d.show()
 
-    def token_send_dialog(self, token: Token):
+    def token_send_dialog(self, token):
         d = TokenSendDialog(self, token)
         d.show()
 
     def do_token_pay(self, token, pay_to, amount, gas_limit, gas_price, dialog, preview=False):
         try:
             datahex = 'a9059cbb{}{:064x}'.format(pay_to.zfill(64), amount)
-            script = contract_script(gas_limit, gas_price, datahex, token.contract_addr, opcodes.OP_CALL)
+            script = contract_script(gas_limit, gas_price, datahex, token[0], opcodes.OP_CALL)
             outputs = [TxOutput(TYPE_SCRIPT, script, 0), ]
-            tx_desc = _('pay out {} {}').format(amount / (10 ** token.decimals), token.symbol)
+            tx_desc = _('pay out {} {}').format(amount / (10 ** token[4]), token[3])
             self._smart_contract_broadcast(outputs, tx_desc, gas_limit * gas_price,
-                                           token.bind_addr, dialog, None, preview)
+                                           token[1], dialog, None, preview)
         except (BaseException,) as e:
             traceback.print_exc(file=sys.stderr)
             dialog.show_message(str(e))
@@ -3600,7 +3664,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             _("Gas fee") + ": " + self.format_amount_and_units(gas_fee),
         ]
 
-        confirm_rate = bitcoin.FEERATE_WARNING_HIGH_FEE
+        confirm_rate = simple_config.FEERATE_WARNING_HIGH_FEE
         if fee - gas_fee > confirm_rate * tx.estimated_size() / 1000:
             msg.append(_('Warning') + ': ' + _("The fee for this transaction seems unusually high."))
 
@@ -3648,7 +3712,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
     def call_smart_contract(self, address, abi, args, sender, dialog):
         data = eth_abi_encode(abi, args)
         try:
-            result = self.network.call_contract(address, data, sender)
+            result = self.network.run_from_another_thread(self.network.call_contract(address, data, sender))
         except BaseException as e:
             import traceback, sys
             traceback.print_exc(file=sys.stderr)
@@ -3698,6 +3762,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
                 output_index = b'\x00\x00\x00\x00'
                 contract_addr = bh2u(hash_160(reversed_txid + output_index))
                 self.set_smart_contract(name, contract_addr, abi)
+
         try:
             abi_encoded = ''
             if constructor:

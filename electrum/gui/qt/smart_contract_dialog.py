@@ -9,7 +9,8 @@ from PyQt5.QtCore import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 
-from .util import ButtonsLineEdit, Buttons, ButtonsTextEdit, CancelButton, MessageBoxMixin, EnterButton
+from .util import ButtonsLineEdit, Buttons, ButtonsTextEdit, CancelButton, MessageBoxMixin, EnterButton, ColorScheme
+
 from electrum.i18n import _
 from electrum.plugin import run_hook
 from electrum.bitcoin import is_hash160, is_address, b58_address_to_hash160

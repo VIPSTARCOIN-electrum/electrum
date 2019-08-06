@@ -60,6 +60,23 @@ expiration_values = [
     (_('Never'), None)
 ]
 
+# note: this list needs to be kept in sync with another in kivy
+TX_ICONS = [
+    "unconfirmed.png",
+    "warning.png",
+    "unconfirmed.png",
+    "offline_tx.png",
+    "clock1.png",
+    "clock2.png",
+    "clock3.png",
+    "clock4.png",
+    "clock5.png",
+    "clock6.png",
+    "clock7.png",
+    "clock8.png",
+    "clock9.png",
+    "confirmed.png",
+]
 
 class EnterButton(QPushButton):
     def __init__(self, text, func):

@@ -35,6 +35,7 @@ import json
 import copy
 import errno
 import traceback
+import binascii
 from functools import partial
 from numbers import Number
 from decimal import Decimal
@@ -47,7 +48,8 @@ from .util import (NotEnoughFunds, UserCancelled, profiler,
                    InvalidPassword, format_time, timestamp_to_datetime, Satoshis,
                    Fiat, bfh, bh2u, TxMinedInfo, quantize_feerate)
 from .bitcoin import (COIN, COINBASE_MATURITY, RECOMMEND_CONFIRMATIONS, TYPE_ADDRESS, TYPE_STAKE, is_address, address_to_script,
-                      is_minikey, relayfee, dust_threshold)
+                      b58_address_to_hash160, hash160_to_p2pkh, is_minikey, relayfee, dust_threshold)
+from .blockchain import TOKEN_TRANSFER_TOPIC
 from .crypto import sha256d
 from . import keystore
 from .keystore import load_keystore, Hardware_KeyStore
@@ -597,6 +599,71 @@ class Abstract_Wallet(AddressSynchronizer):
             'summary': summary
         }
 
+    @profiler
+    def get_full_token_history(self, contract_addr=None, bind_addr=None, from_timestamp=None, to_timestamp=None):
+        h = []
+        keys = []
+        for token_key in self.db.list_tokens():
+            if contract_addr and contract_addr in token_key \
+                    or bind_addr and bind_addr in token_key \
+                    or not bind_addr and not contract_addr:
+                keys.append(token_key)
+        for key in keys:
+            contract_addr, bind_addr = key.split('_')
+            for txid, height, log_index in self.db.get_key_token_history(key):
+                status = self.get_tx_height(txid)
+                height, conf, timestamp = status.height, status.conf, status.timestamp
+                for call_index, contract_call in enumerate(self.db.get_tx_receipt(txid)):
+                    logs = contract_call.get('log', [])
+                    if len(logs) > log_index:
+                        log = logs[log_index]
+
+                        # check contarct address
+                        if contract_addr != log.get('address', ''):
+                            self.logger.info("contract address mismatch")
+                            continue
+
+                        # check topic name
+                        topics = log.get('topics', [])
+                        if len(topics) < 3:
+                            self.logger.info("not enough topics")
+                            continue
+                        if topics[0] != TOKEN_TRANSFER_TOPIC:
+                            self.logger.info("topic mismatch")
+                            continue
+
+                        # check user bind address
+                        _, hash160b = b58_address_to_hash160(bind_addr)
+                        hash160 = bh2u(hash160b).zfill(64)
+                        if hash160 not in topics:
+                            self.logger.info("address mismatch")
+                            continue
+                        amount = int(log.get('data'), 16)
+                        from_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[1][-40:]))
+                        to_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[2][-40:]))
+                        item = {
+                            'from_addr': from_addr,
+                            'to_addr': to_addr,
+                            'bind_addr': self.db.get_token(key)[1],
+                            'amount': amount,
+                            'token_key': key,
+                            'txid': txid,
+                            'height': height,
+                            'txpos_in_block': 0,
+                            'confirmations': conf,
+                            'timestamp': timestamp,
+                            'date': timestamp_to_datetime(timestamp),
+                            'call_index': call_index,
+                            'log_index': log_index,
+                        }
+                        h.append(item)
+                    else:
+                        continue
+        return {
+            'transactions': h
+        }
+
+
     def default_fiat_value(self, tx_hash, fx, value_sat):
         return value_sat / Decimal(COIN) * self.price_at_timestamp(tx_hash, fx.timestamp_rate)
 
@@ -653,14 +720,17 @@ class Abstract_Wallet(AddressSynchronizer):
         conf = tx_mined_info.conf
         timestamp = tx_mined_info.timestamp
         is_mined = False
+        is_staked = False
         tx = None
         try:
             tx = self.db.get_transaction(tx_hash)
             if not tx:
-                tx = self.token_txs.get(tx_hash)
-            is_mined = tx.outputs()[0].type == TYPE_STAKE
+                tx = self.db.get_token_tx(tx_hash)
+
+            is_mined = tx.inputs()[0]['type'] == 'coinbase'
+            is_staked = tx.outputs()[0].type == TYPE_STAKE
         except (BaseException,) as e:
-            _logger.info('get_tx_status', e)
+            _logger.info(f"get_tx_status {e}")
         if conf == 0:
             tx = self.db.get_transaction(tx_hash)
             if not tx:
@@ -688,7 +758,7 @@ class Abstract_Wallet(AddressSynchronizer):
                 status = 0
             else:
                 status = 2  # not SPV verified
-        elif is_mined:
+        elif is_mined or is_staked:
             status = 3 + max(min(conf // (COINBASE_MATURITY // RECOMMEND_CONFIRMATIONS), RECOMMEND_CONFIRMATIONS), 1)
         else:
             status = 3 + min(conf, RECOMMEND_CONFIRMATIONS)
@@ -802,12 +872,13 @@ class Abstract_Wallet(AddressSynchronizer):
                 base_tx.remove_signatures()
                 base_tx.add_inputs_info(self)
                 base_tx_fee = base_tx.get_fee()
-                relayfeerate = self.relayfee() / 1000
+                relayfeerate = Decimal(self.relayfee()) / 1000
                 original_fee_estimator = fee_estimator
-                def fee_estimator(size: int) -> int:
+                def fee_estimator(size: Union[int, float, Decimal]) -> int:
+                    size = Decimal(size)
                     lower_bound = base_tx_fee + round(size * relayfeerate)
                     lower_bound = lower_bound if not is_local else 0
-                    return max(lower_bound, original_fee_estimator(size))
+                    return int(max(lower_bound, original_fee_estimator(size)))
                 txi = base_tx.inputs()
                 txo = list(filter(lambda o: not self.is_change(o.address), base_tx.outputs()))
                 old_change_addrs = [o.address for o in base_tx.outputs() if self.is_change(o.address)]

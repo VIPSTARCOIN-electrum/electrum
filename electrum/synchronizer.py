@@ -32,9 +32,11 @@ import logging
 
 from aiorpcx import TaskGroup, run_in_thread, RPCError
 
+from . import constants
 from .transaction import Transaction
-from .util import bh2u, make_aiohttp_session, NetworkJobOnDefaultServer
-from .bitcoin import address_to_scripthash, is_address, hash160_to_p2pkh
+from .util import bh2u, make_aiohttp_session, NetworkJobOnDefaultServer, to_bytes
+from .bitcoin import address_to_scripthash, is_address, hash160_to_p2pkh, b58_address_to_hash160
+from .blockchain import TOKEN_TRANSFER_TOPIC
 from .network import UntrustedServerReturnedError
 from .logging import Logger
 from .interface import GracefulDisconnect
@@ -68,29 +70,41 @@ class SynchronizerBase(NetworkJobOnDefaultServer):
     def _reset(self):
         super()._reset()
         self.requested_addrs = set()
+        self.requested_tokens = set()
         self.scripthash_to_address = {}
+        self.key_to_token = {}
         self._processed_some_notifications = False  # so that we don't miss them
         self._reset_request_counters()
         # Queues
         self.add_queue = asyncio.Queue()
         self.status_queue = asyncio.Queue()
+        self.add_token_queue = asyncio.Queue()
+        self.status_token_queue = asyncio.Queue()
 
     async def _start_tasks(self):
         try:
             async with self.group as group:
                 await group.spawn(self.send_subscriptions())
                 await group.spawn(self.handle_status())
+                await group.spawn(self.send_token_subscriptions())
+                await group.spawn(self.handle_token_status())
                 await group.spawn(self.main())
         finally:
             # we are being cancelled now
             self.session.unsubscribe(self.status_queue)
+            self.session.unsubscribe(self.status_token_queue)
 
     def _reset_request_counters(self):
         self._requests_sent = 0
         self._requests_answered = 0
+        self._requests_token_sent = 0
+        self._requests_token_answered = 0
 
     def add(self, addr):
         asyncio.run_coroutine_threadsafe(self._add_address(addr), self.asyncio_loop)
+
+    def add_token(self, key):
+        asyncio.run_coroutine_threadsafe(self._add_token(key), self.asyncio_loop)
 
     async def _add_address(self, addr: str):
         if not is_address(addr): raise ValueError(f"invalid bitcoin address {addr}")
@@ -98,7 +112,16 @@ class SynchronizerBase(NetworkJobOnDefaultServer):
         self.requested_addrs.add(addr)
         await self.add_queue.put(addr)
 
+    async def _add_token(self, key: str):
+        if key in self.requested_tokens: return
+        self.requested_tokens.add(key)
+        await self.add_token_queue.put(key)
+
     async def _on_address_status(self, addr, status):
+        """Handle the change of the status of an address."""
+        raise NotImplementedError()  # implemented by subclasses
+
+    async def _on_token_status(self, key, status):
         """Handle the change of the status of an address."""
         raise NotImplementedError()  # implemented by subclasses
 
@@ -120,6 +143,25 @@ class SynchronizerBase(NetworkJobOnDefaultServer):
             addr = await self.add_queue.get()
             await self.group.spawn(subscribe_to_address, addr)
 
+    async def send_token_subscriptions(self):
+        async def subscribe_to_token(key):
+            contract_addr, bind_addr = key.split('_')
+            token = self.wallet.db.get_token(key)
+            self.key_to_token[key] = token
+            self._requests_token_sent += 1
+            try:
+                await self.session.subscribe('blockchain.contract.event.subscribe', [bh2u(b58_address_to_hash160(bind_addr)[1]), contract_addr, TOKEN_TRANSFER_TOPIC], self.status_token_queue)
+            except RPCError as e:
+                if e.message == 'history too large':  # no unique error code
+                    raise GracefulDisconnect(e, log_level=logging.ERROR) from e
+                raise
+            self._requests_token_answered += 1
+            self.requested_tokens.remove(key)
+
+        while True:
+            key = await self.add_token_queue.get()
+            await self.group.spawn(subscribe_to_token, key)
+
     async def handle_status(self):
         while True:
             h, status = await self.status_queue.get()
@@ -127,8 +169,17 @@ class SynchronizerBase(NetworkJobOnDefaultServer):
             await self.group.spawn(self._on_address_status, addr, status)
             self._processed_some_notifications = True
 
+    async def handle_token_status(self):
+        while True:
+            bind_addr, contract_addr, __, status = await self.status_token_queue.get()
+            key = '{}_{}'.format(contract_addr, hash160_to_p2pkh(binascii.a2b_hex(bind_addr)))
+            await self.group.spawn(self._on_token_status, key, status)
+            self._processed_some_notifications = True
+
     def num_requests_sent_and_answered(self) -> Tuple[int, int]:
-        return self._requests_sent, self._requests_answered
+        requests_sent = self._requests_sent + self._requests_token_sent
+        requests_answered = self._requests_answered + self._requests_token_answered
+        return requests_sent, requests_answered
 
     async def main(self):
         raise NotImplementedError()  # implemented by subclasses
@@ -148,13 +199,11 @@ class Synchronizer(SynchronizerBase):
 
     def _reset(self):
         super()._reset()
-        self.new_addresses = set()
-        self.new_tokens = set()
         self.requested_tx = {}
         self.requested_histories = set()
-	# VIPSTARCOIN (by Qtum)
+    	# VIPSTARCOIN (by Qtum)
         self.requested_tx_receipt = {}
-        self.requested_token_histories = {}
+        self.requested_token_histories = set()
         self.requested_token_txs = {}
 
         self.lock = Lock()
@@ -164,29 +213,12 @@ class Synchronizer(SynchronizerBase):
 
     def is_up_to_date(self):
         return (not self.requested_addrs
+                and not self.requested_tokens
                 and not self.requested_histories
                 and not self.requested_tx
                 and not self.requested_tx_receipt
                 and not self.requested_token_histories
                 and not self.requested_token_txs)
-
-    def add(self, address):
-        '''This can be called from the proxy or GUI threads.'''
-        with self.lock:
-            self.new_addresses.add(address)
-
-    def subscribe_to_addresses(self, addresses):
-        if addresses:
-            self.requested_addrs |= addresses
-            self.network.subscribe_to_addresses(addresses, self.on_address_status)
-
-    def get_status(self, h):
-        if not h:
-            return None
-        status = ''
-        for tx_hash, height in h:
-            status += tx_hash + ':%d:' % height
-        return bh2u(hashlib.sha256(status.encode('ascii')).digest())
 
     async def _on_address_status(self, addr, status):
         history = self.wallet.db.get_addr_history(addr)
@@ -237,178 +269,70 @@ class Synchronizer(SynchronizerBase):
             for tx_hash in transaction_hashes:
                 await group.spawn(self._get_transaction(tx_hash, allow_server_not_finding_tx=allow_server_not_finding_tx))
 
-    def add_token(self, token):
-        with self.lock:
-            self.new_tokens.add(token)
-
-    async def subscribe_tokens(self, tokens):
-        """
-        :type tokens: set(Token)
-        """
-        if tokens:
-            await self.network.subscribe_tokens(tokens, self.on_token_status)
-
-    async def get_token_status(self, h):
-        if not h:
-            return None
-        status = ':'.join(['{}:{:d}:{:d}'.format(tx_hash, height, log_index)
-                           for tx_hash, height, log_index in h])
-        return bh2u(hashlib.sha256(status.encode('ascii')).digest())
-
-    async def on_token_status(self, response):
-        if self.wallet.synchronizer is None and self.initialized:
-            return  # we have been killed, this was just an orphan callback
-        params, result = self.parse_response(response)
-        if not params:
-            print('on_token_status err', response)
+    async def _on_token_status(self, key, status):
+        token_history = self.wallet.db.get_key_token_history(key)
+        if (key, status) in self.requested_token_histories:
             return
-        try:
-            bind_addr = hash160_to_p2pkh(binascii.a2b_hex(params[0]))
-            contract_addr = params[1]
-            key = '{}_{}'.format(contract_addr, bind_addr)
-            token = self.wallet.tokens[key]
-            if token:
-                token_history = self.wallet.token_history.get(key, [])
-                if self.get_token_status(token_history) != result:
-                    self.requested_token_histories[key] = result
-                    self.network.request_token_history(token, self.on_token_history)
-                    self.get_token_balance(token)
-                else:
-                    self.print_error('token status matched')
-        except (BaseException,) as e:
-            import traceback, sys
-            traceback.print_exc(file=sys.stderr)
-            print('on_token_status err', e)
+        self.requested_token_histories.add((key, status))
+        token = self.wallet.db.get_token(key)
+        self._requests_token_sent += 1
+        result = await self.network.request_token_history(token[1], token[0])
+        self._requests_token_answered += 1
+        self.logger.info(f"receiving token history {key} {len(result)}")
+        token_balance = await self.network.request_token_balance(token[1], token[0])
+        if token[5] != token_balance:
+            token[5] = token_balance
+            self.wallet.db.add_token(key, token)
+        hist = list(map(lambda item: (item['tx_hash'], item['height'], item['log_index']), result))
+        hashes = set(map(lambda item: (item['tx_hash'], item['log_index']), result))
+        # Note if the server hasn't been patched to sort the items properly
+        if hist != sorted(hist, key=lambda x: x[1]):
+            self.network.interface.logger.info("serving improperly sorted address histories")
 
-    async def on_token_history(self, response):
-        if self.wallet.synchronizer is None and self.initialized:
-            return  # we have been killed, this was just an orphan callback
-        params, result = self.parse_response(response)
-        if not params:
-            print('on_token_history err', response)
-            return
-        try:
-            bind_addr = hash160_to_p2pkh(binascii.a2b_hex(params[0]))
-            contract_addr = params[1]
-            key = '{}_{}'.format(contract_addr, bind_addr)
-            server_status = self.requested_token_histories.get(key)
-            if server_status is None:
-                self.print_error("receiving history (unsolicited)", key, len(result))
-                return
+        # Check that txids are unique
+        if len(hashes) != len(result):
+            print("error: server token history has non-unique txid_logindexs: %s" % key)
+        # Check that the status corresponds to what was announced
+        else:
+            # Store received history
+            self.wallet.receive_token_history_callback(key, hist)
+            # Request token tx and receipts we don't have
+            await self._request_missing_tx_receipts(hist)
+            await self._request_missing_token_txs(hist)
+        # Remove request; this allows up_to_date to be True
+        self.requested_token_histories.discard((key, status))
 
-            self.print_error("receiving token history", key, len(result))
-
-            hist = list(map(lambda item: (item['tx_hash'], item['height'], item['log_index']), result))
-            hashes = set(map(lambda item: (item['tx_hash'], item['log_index']), result))
-            # Note if the server hasn't been patched to sort the items properly
-            if hist != sorted(hist, key=lambda x: x[1]):
-                self.network.interface.print_error("serving improperly sorted address histories")
-
-            # Check that txids are unique
-            if len(hashes) != len(result):
-                print("error: server token history has non-unique txid_logindexs: %s" % key)
-            # Check that the status corresponds to what was announced
-            elif self.get_token_status(hist) != server_status:
-                print("error: status mismatch: %s" % key)
-            else:
-                # Store received history
-                self.wallet.receive_token_history_callback(key, hist)
-                # Request token tx and receipts we don't have
-                self.request_missing_tx_receipts(hist)
-                self.request_missing_token_txs(hist)
-            # Remove request; this allows up_to_date to be True
-            self.requested_token_histories.pop(key)
-
-        except (BaseException,) as e:
-            print('on_token_history err', e)
-
-    async def request_missing_tx_receipts(self, hist):
+    async def _request_missing_tx_receipts(self, hist, *, allow_server_not_finding_tx=False):
         # "hist" is a list of [tx_hash, tx_height, log_index] lists
-        tx_hashs = []
+        transaction_hashes = []
         for tx_hash, tx_height, log_index in hist:
             if tx_hash in self.requested_tx_receipt:
                 continue
-            if tx_hash in self.wallet.tx_receipt:
+            if tx_hash in self.wallet.db.list_tx_receipt():
                 continue
-            tx_hashs.append(tx_hash)
+            transaction_hashes.append(tx_hash)
             self.requested_tx_receipt[tx_hash] = tx_height
 
-        self.network.get_transactions_receipt(tx_hashs, self.on_tx_receipt_response)
+        if not transaction_hashes: return
+        async with TaskGroup() as group:
+            for tx_hash in transaction_hashes:
+                await group.spawn(self._get_transaction_receipt(tx_hash, allow_server_not_finding_tx=allow_server_not_finding_tx))
 
-    async def on_tx_receipt_response(self, response):
-        if self.wallet.synchronizer is None and self.initialized:
-            return  # we have been killed, this was just an orphan callback
-        params, receipt = self.parse_response(response)
-        if not params:
-            print('tx_receipt_response err', response)
-            return
-        tx_hash = params[0]
-        if not isinstance(receipt, list):
-            self.print_msg("transaction receipt not list, skipping", tx_hash)
-            return
-        height = self.requested_tx_receipt.pop(tx_hash)
-        self.wallet.receive_tx_receipt_callback(tx_hash, receipt)
-        self.print_error("received tx_receipt %s height: %d" %
-                         (tx_hash, height))
-        # callbacks
-        self.network.trigger_callback('new_tx_receipt', receipt)
-        if not self.requested_tx_receipt and not self.requested_token_txs:
-            self.network.trigger_callback('on_token')
 
-    async def request_missing_token_txs(self, hist):
+    async def _request_missing_token_txs(self, hist, *, allow_server_not_finding_tx=False):
         # "hist" is a list of [tx_hash, tx_height, log_index] lists
-        tx_hashs = []
+        transaction_hashes = []
         for tx_hash, tx_height, log_index in hist:
             if tx_hash in self.requested_token_txs:
                 continue
-            if tx_hash in self.wallet.token_txs:
+            if tx_hash in self.wallet.db.list_token_txs():
                 continue
-            tx_hashs.append(tx_hash)
+            transaction_hashes.append(tx_hash)
             self.requested_token_txs[tx_hash] = tx_height
-        self.network.get_transactions(tx_hashs, self.on_token_tx_response)
-
-    async def on_token_tx_response(self, response):
-        if self.wallet.synchronizer is None and self.initialized:
-            return  # we have been killed, this was just an orphan callback
-        params, result = self.parse_response(response)
-        if not params:
-            return
-        tx_hash = params[0]
-        tx = Transaction(result)
-        try:
-            tx.deserialize()
-        except Exception:
-            self.print_msg("cannot deserialize transaction, skipping", tx_hash)
-            return
-        tx_height = self.requested_token_txs.pop(tx_hash)
-        self.wallet.receive_token_tx_callback(tx_hash, tx, tx_height)
-        self.print_error("received tx %s height: %d bytes: %d" %
-                         (tx_hash, tx_height, len(tx.raw)))
-        # callbacks
-        self.network.trigger_callback('new_token_transaction', tx)
-        if not self.requested_token_txs and not self.requested_tx_receipt:
-            self.network.trigger_callback('on_token')
-
-    async def get_token_balance(self, token):
-        """
-        :type token: Token
-        """
-        await self.network.request_token_balance(token)
-
-    async def on_token_balance_response(self, response):
-        params, result = self.parse_response(response)
-        if not params:
-            return
-        try:
-            contract_addr = params[0]
-            bind_addr = hash160_to_p2pkh(binascii.a2b_hex(params[1][-40:]))
-            key = '{}_{}'.format(contract_addr, bind_addr)
-            token = self.wallet.tokens[key]
-            if token and token.balance != result and isinstance(result, int):
-                token = token._replace(balance=result)
-                self.wallet.tokens[key] = token
-        except (BaseException,) as e:
-            print('token_balance_response err', e)
+        if not transaction_hashes: return
+        async with TaskGroup() as group:
+            for tx_hash in transaction_hashes:
+                await group.spawn(self._get_token_transaction(tx_hash, allow_server_not_finding_tx=allow_server_not_finding_tx))
 
     async def _get_transaction(self, tx_hash, *, allow_server_not_finding_tx=False):
         self._requests_sent += 1
@@ -441,6 +365,60 @@ class Synchronizer(SynchronizerBase):
         # callbacks
         self.wallet.network.trigger_callback('new_transaction', self.wallet, tx)
 
+    async def _get_transaction_receipt(self, tx_hash, *, allow_server_not_finding_tx=False):
+        self._requests_token_sent += 1
+        try:
+            result = await self.network.get_transactions_receipt(tx_hash)
+        except UntrustedServerReturnedError as e:
+            # most likely, "No such mempool or blockchain transaction"
+            if allow_server_not_finding_tx:
+                self.requested_tx_receipt.pop(tx_hash)
+                return
+            else:
+                raise
+        finally:
+            self._requests_token_answered += 1
+        tx_height = self.requested_tx_receipt.pop(tx_hash)
+        self.wallet.receive_tx_receipt_callback(tx_hash, result)
+        self.logger.info(f"received tx_receipt {tx_hash} height: {tx_height}")
+        # callbacks
+        self.wallet.network.trigger_callback('new_transaction_receipt', result)
+        if not self.requested_tx_receipt and not self.requested_token_txs:
+            self.network.trigger_callback('on_token')
+
+    async def _get_token_transaction(self, tx_hash, *, allow_server_not_finding_tx=False):
+        self._requests_token_sent += 1
+        try:
+            result = await self.network.get_transaction(tx_hash)
+        except UntrustedServerReturnedError as e:
+            # most likely, "No such mempool or blockchain transaction"
+            if allow_server_not_finding_tx:
+                self.requested_token_txs.pop(tx_hash)
+                return
+            else:
+                raise
+        finally:
+            self._requests_token_answered += 1
+        tx = Transaction(result)
+        try:
+            tx.deserialize()  # see if raises
+        except Exception as e:
+            # possible scenarios:
+            # 1: server is sending garbage
+            # 2: there is a bug in the deserialization code
+            # 3: there was a segwit-like upgrade that changed the tx structure
+            #    that we don't know about
+            raise SynchronizerFailure(f"cannot deserialize transaction {tx_hash}") from e
+        if tx_hash != tx.txid():
+            raise SynchronizerFailure(f"received tx does not match expected txid ({tx_hash} != {tx.txid()})")
+        tx_height = self.requested_token_txs.pop(tx_hash)
+        self.wallet.receive_token_tx_callback(tx_hash, tx, tx_height)
+        self.logger.info(f"received tx {tx_hash} height: {tx_height} bytes: {len(tx.raw)}")
+        # callbacks
+        self.wallet.network.trigger_callback('new_token_transaction', tx)
+        if not self.requested_token_txs and not self.requested_tx_receipt:
+            self.network.trigger_callback('on_token')
+
     async def main(self):
         self.wallet.set_up_to_date(False)
         # request missing txns, if any
@@ -451,21 +429,24 @@ class Synchronizer(SynchronizerBase):
             if history == ['*']: continue
             await self._request_missing_txs(history, allow_server_not_finding_tx=True)
 
-    	# request missing txns, if tokens
-        for history in self.wallet.token_history.values():
-            await self.request_missing_tx_receipts(history)
-            await self.request_missing_token_txs(history)
+    	# request tokens and missing token txns
+        for key in self.wallet.db.list_tokens():
+            token = self.wallet.db.get_token(key)
+            token_balance = await self.network.request_token_balance(token[1], token[0])
+            if token[5] != token_balance:
+                token[5] = token_balance
+                self.wallet.db.add_token(key, token)
 
-        tokens = set()
-        for key in self.wallet.tokens.keys():
-            token = self.wallet.tokens[key]
-            tokens.add(token)
-            await self.get_token_balance(token)
-        await self.subscribe_tokens(tokens)
+            history = self.wallet.db.get_key_token_history(key)
+            await self._request_missing_tx_receipts(history, allow_server_not_finding_tx=True)
+            await self._request_missing_token_txs(history, allow_server_not_finding_tx=True)
 
         # add addresses to bootstrap
         for addr in self.wallet.get_addresses():
             await self._add_address(addr)
+        # add tokens to bootstrap
+        for key in self.wallet.get_tokens():
+            await self._add_token(key)
         # main loop
         while True:
             await asyncio.sleep(0.1)

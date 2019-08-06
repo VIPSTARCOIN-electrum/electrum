@@ -44,7 +44,7 @@ from electrum.util import (block_explorer_URL, profiler, TxMinedInfo,
                            OrderedDictWithIndex, timestamp_to_datetime)
 from electrum.logging import get_logger, Logger
 
-from .util import (read_QIcon, MONOSPACE_FONT, Buttons, CancelButton, OkButton,
+from .util import (read_QIcon, TX_ICONS, MONOSPACE_FONT, Buttons, CancelButton, OkButton,
                    filename_field, MyTreeView, AcceptFileDragDrop, WindowModalDialog,
                    CloseButton, webopen)
 
@@ -60,24 +60,6 @@ try:
 except:
     _logger.info("could not import electrum.plot. This feature needs matplotlib to be installed.")
     plot_history = None
-
-# note: this list needs to be kept in sync with another in kivy
-TX_ICONS = [
-    "unconfirmed.png",
-    "warning.png",
-    "unconfirmed.png",
-    "offline_tx.png",
-    "clock1.png",
-    "clock2.png",
-    "clock3.png",
-    "clock4.png",
-    "clock5.png",
-    "clock6.png",
-    "clock7.png",
-    "clock8.png",
-    "clock9.png",
-    "confirmed.png",
-]
 
 class HistoryColumns(IntEnum):
     STATUS_ICON = 0

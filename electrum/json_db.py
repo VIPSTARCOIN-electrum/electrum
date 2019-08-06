@@ -28,6 +28,7 @@ import json
 import copy
 import threading
 from collections import defaultdict
+from functools import reduce
 from typing import Dict, Optional
 
 from . import util, bitcoin
@@ -616,6 +617,38 @@ class JsonDB(Logger):
     def list_transactions(self):
         return list(self.transactions.keys())
 
+    @modifier
+    def add_token_tx(self, tx, hist):
+        self.token_txs[tx] = hist
+
+    @modifier
+    def remove_token_tx(self, tx):
+        self.token_txs.pop(tx, None)
+
+    @locked
+    def get_token_tx(self, tx):
+        return self.token_txs.get(tx)
+
+    @locked
+    def list_token_txs(self):
+        return list(self.token_txs.keys())
+
+    @modifier
+    def add_token(self, key, token):
+        self.tokens[key] = token
+
+    @modifier
+    def remove_token(self, key):
+        self.tokens.pop(key, None)
+
+    @locked
+    def get_token(self, key):
+        return self.tokens.get(key)
+
+    @locked
+    def list_tokens(self):
+        return list(self.tokens.keys())
+
     @locked
     def get_history(self):
         return list(self.history.keys())
@@ -635,6 +668,38 @@ class JsonDB(Logger):
     @modifier
     def remove_addr_history(self, addr):
         self.history.pop(addr, None)
+
+    @modifier
+    def add_tx_receipt(self, tx_hash: str, tx) -> None:
+        self.tx_receipt[tx_hash] = tx
+
+    @modifier
+    def remove_tx_receipt(self, tx_hash) -> Optional[Transaction]:
+        return self.tx_receipt.pop(tx_hash, None)
+
+    @locked
+    def get_tx_receipt(self, tx_hash: str) -> Optional[Transaction]:
+        return self.tx_receipt.get(tx_hash)
+
+    @locked
+    def list_tx_receipt(self):
+        return list(self.tx_receipt.keys())
+
+    @locked
+    def get_token_history(self):
+        return list(self.token_history.keys())
+
+    @locked
+    def get_key_token_history(self, key):
+        return self.token_history.get(key, [])
+
+    @modifier
+    def set_key_token_history(self, key, hist):
+        self.token_history[key] = hist
+
+    @modifier
+    def remove_key_token_history(self, key):
+        self.token_history.pop(key, None)
 
     @locked
     def list_verified_tx(self):
@@ -759,8 +824,12 @@ class JsonDB(Logger):
         self.transactions = self.get_data_ref('transactions')   # type: Dict[str, Transaction]
         self.spent_outpoints = self.get_data_ref('spent_outpoints')
         self.history = self.get_data_ref('addr_history')  # address -> list of (txid, height)
+        self.token_history = self.get_data_ref('token_history')
+        self.token_txs = self.get_data_ref('token_txs')
+        self.tokens = self.get_data_ref('tokens')
         self.verified_tx = self.get_data_ref('verified_tx3')  # txid -> (height, timestamp, txpos, header_hash)
         self.tx_fees = self.get_data_ref('tx_fees')
+        self.tx_receipt = self.get_data_ref('tx_receipt')
         # convert raw hex transactions to Transaction objects
         for tx_hash, raw_tx in self.transactions.items():
             self.transactions[tx_hash] = Transaction(raw_tx)
@@ -769,6 +838,16 @@ class JsonDB(Logger):
             for d in t.values():
                 for addr, lst in d.items():
                     d[addr] = set([tuple(x) for x in lst])
+        # convert raw hex token transactions to Transaction objects
+        if self.token_history:
+            token_hist_txids = [x2[0] for x2 in reduce(lambda x1, y1: x1+y1, self.token_history.values())]
+        else:
+            token_hist_txids = []
+        for tx_hash, raw in self.token_txs.items():
+            token_txs_hist = self.token_txs.get(tx_hash)
+            if tx_hash in token_hist_txids:
+                tx = Transaction(raw)
+                self.token_txs[tx_hash] = tx
         # remove unreferenced tx
         for tx_hash in list(self.transactions.keys()):
             if not self.get_txi(tx_hash) and not self.get_txo(tx_hash):
@@ -791,3 +870,7 @@ class JsonDB(Logger):
         self.history.clear()
         self.verified_tx.clear()
         self.tx_fees.clear()
+        self.tokens.clear()
+        self.token_txs.clear()
+        self.token_history.clear()
+        self.tx_receipt.clear()

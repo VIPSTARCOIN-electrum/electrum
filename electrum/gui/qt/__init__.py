@@ -204,6 +204,7 @@ class ElectrumGui(Logger):
         # FIXME: Remove in favour of the load_wallet hook
         run_hook('on_new_window', w)
         w.warn_if_testnet()
+        w.warn_if_trezor_and_not_p2pkh()
         w.warn_if_watching_only()
         return w
 

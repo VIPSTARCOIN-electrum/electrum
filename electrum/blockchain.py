@@ -429,7 +429,9 @@ class Blockchain(Logger):
         they will be stored in different files."""
         if self.parent is None:
             return False
-        if self.parent.get_chainwork() >= self.get_chainwork():
+        # get_chainwork doesn't work yet
+        #if self.parent.get_chainwork() >= self.get_chainwork():
+        if self.parent.height() - self.forkpoint + 1 >= self.size():
             return False
         self.logger.info(f"swapping {self.forkpoint} {self.parent.forkpoint}")
         parent_branch_size = self.parent.height() - self.forkpoint + 1
@@ -483,8 +485,9 @@ class Blockchain(Logger):
     def write(self, data: bytes, offset: int, truncate: bool=True) -> None:
         filename = self.path()
         self.assert_headers_file_available(filename)
+        size = os.path.getsize(filename) if os.path.exists(filename) else 0
         with open(filename, 'rb+') as f:
-            if truncate and offset != self._size * HEADER_SIZE:
+            if truncate and offset != size:
                 f.seek(offset)
                 f.truncate()
             f.seek(offset)
@@ -498,9 +501,11 @@ class Blockchain(Logger):
         delta = header.get('block_height') - self.forkpoint
         data = fix_header(bfh(serialize_header(header)))
         # headers are only _appended_ to the end:
-        # assert delta == self.size(), (delta, self.size())
+        assert delta == self.size(), (delta, self.size())
         assert len(data) == HEADER_SIZE
-        self.write(data, delta*HEADER_SIZE)
+        filename = self.path()
+        size = os.path.getsize(filename) if os.path.exists(filename) else 0
+        self.write(data, size)
         self.swap_with_parent()
 
     @with_lock
@@ -705,9 +710,12 @@ class Blockchain(Logger):
 
     def chainwork_of_header_at_height(self, height: int) -> int:
         """work done by single header at given height"""
-        chunk_idx = height // 2016 - 1
-        target = self.get_target(height)
-        work = ((2 ** 256 - target - 1) // (target + 1)) + 1
+        header = self.read_header(height)
+        work = 0
+        if header:
+            bits = header.get('bits')
+            target = self.bits_to_target(bits)
+            work = ((2 ** 256 - target - 1) // (target + 1)) + 1
         return work
 
     @with_lock

@@ -660,7 +660,7 @@ mainnet_block_explorers = {
     'vips.blockbook.japanesecoin-pool.work': ('https://vips.blockbook.japanesecoin-pool.work/',
 			{'tx': 'tx', 'addr': 'address'}),
     'insight.vipstarco.in': ('https://insight.vipstarco.in/',
-			{'tx': 'tx', 'addr': 'address', 'contract': 'contract'}),
+			{'tx': 'tx', 'addr': 'address'}),
 }
 
 testnet_block_explorers = {
