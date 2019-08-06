@@ -11,3 +11,5 @@ aiohttp_socks
 certifi
 eth_utils
 eth_abi
+pycryptodome
+pysha3

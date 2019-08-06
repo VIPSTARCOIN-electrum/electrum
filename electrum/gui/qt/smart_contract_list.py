@@ -34,6 +34,9 @@ class SmartContractList(MyTreeView):
         self.update()
 
     def mouseDoubleClickEvent(self, item):
+        idx = self.indexAt(item.pos())
+        if not idx.isValid():
+            return
         address = self.model().itemFromIndex(self.selected_in_column(self.Columns.ADDRESS)[0]).text()
         self.parent.contract_func_dialog(address)
 

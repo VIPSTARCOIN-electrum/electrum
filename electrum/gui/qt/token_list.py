@@ -76,6 +76,9 @@ class TokenBalanceList(MyTreeView):
         self.filter()
 
     def mouseDoubleClickEvent(self, item):
+        idx = self.indexAt(item.pos())
+        if not idx.isValid():
+            return
         bind_addr = self.model().itemFromIndex(self.selected_in_column(self.Columns.BIND_ADDRESS)[0]).text()
         contract_addr = self.model().itemFromIndex(self.selected_in_column(self.Columns.NAME)[0]).data(Qt.UserRole)
         key = '{}_{}'.format(contract_addr, bind_addr)
