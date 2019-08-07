@@ -45,8 +45,8 @@ class SmartContractList(MyTreeView):
         selected = self.selected_in_column(self.Columns.NAME)
         multi_select = len(selected) > 1
         if not selected:
-            menu.addAction(_("Add contract"), lambda: self.parent.contract_add_dialog())
-            menu.addAction(_("Create contract"), lambda: self.parent.contract_create_dialog())
+            menu.addAction(_("Add Contract"), lambda: self.parent.contract_add_dialog())
+            menu.addAction(_("Create Contract"), lambda: self.parent.contract_create_dialog())
         elif not multi_select:
             name = self.model().itemFromIndex(self.selected_in_column(self.Columns.NAME)[0]).text()
             address = self.model().itemFromIndex(self.selected_in_column(self.Columns.ADDRESS)[0]).text()
