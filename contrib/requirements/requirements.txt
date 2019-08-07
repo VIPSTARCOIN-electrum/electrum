@@ -9,7 +9,7 @@ aiorpcx>=0.18,<0.19
 aiohttp>=3.3.0
 aiohttp_socks
 certifi
-eth_utils
 eth_abi
+eth_utils
 pycryptodome
 pysha3
