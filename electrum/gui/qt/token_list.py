@@ -399,13 +399,14 @@ class TokenHistoryList(MyTreeView):
             return
         tx_URL = block_explorer_URL(self.config, {'tx': tx_hash})
         height = self.wallet.get_tx_height(tx_hash).height
+        token = self.wallet.db.get_token(tx_item['token_key'])
         is_relevant, is_mine, v, fee = self.wallet.get_wallet_delta(tx)
         is_unconfirmed = height <= 0
         menu = QMenu()
         if column is TokenHistoryColumns.AMOUNT:
             column_data = column_data.strip()
         menu.addAction(_("Copy {}").format(column_title), lambda: self.parent.app.clipboard().setText(column_data))
-        menu.addAction(_("Details"), lambda: self.show_transaction(tx_item))
+        menu.addAction(_("Details"), lambda: self.show_transaction(tx_item, token))
 
         if tx_URL:
             menu.addAction(_("View on block explorer"), lambda: webopen(tx_URL))
