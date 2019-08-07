@@ -512,7 +512,7 @@ class Interface(Logger):
                 return
             _, height = await self.step(height, header)
             # in the simple case, height == self.tip+1
-            if height < self.tip:
+            if height <= self.tip:
                 await self.sync_until(height)
         self.network.trigger_callback('blockchain_updated')
 
@@ -520,7 +520,7 @@ class Interface(Logger):
         if next_height is None:
             next_height = self.tip
         last = None
-        while last is None or height < next_height:
+        while last is None or height <= next_height:
             prev_last, prev_height = last, height
             if next_height > height + 10:
                 could_connect, num_headers = await self.request_chunk(height, next_height)
@@ -558,6 +558,10 @@ class Interface(Logger):
             height, header, bad, bad_header = await self._search_headers_backwards(height, header)
             chain = blockchain.check_header(header) if 'mock' not in header else header['mock']['check'](header)
             can_connect = blockchain.can_connect(header) if 'mock' not in header else header['mock']['connect'](height)
+            if header['merkle_root'] == bad_header['merkle_root'] and header['timestamp'] == bad_header['timestamp'] \
+               and header['bits'] == bad_header['bits'] and header['block_height'] == bad_header['block_height']:
+                self.logger.info(f"connect pass {height}")
+                return 'catchup', height
             assert chain or can_connect
         if can_connect:
             self.logger.info(f"could connect {height}")
