@@ -233,7 +233,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.payment_request_ok_signal.connect(self.payment_request_ok)
         self.payment_request_error_signal.connect(self.payment_request_error)
         self.history_list.setFocus(True)
-        self.token_hist_list.setFocus(True)
+        if not isinstance(self.wallet.keystore, TrezorKeyStore) and addr_type == constants.net.ADDRTYPE_P2PKH and not self.wallet.is_watching_only():
+            self.token_hist_list.setFocus(True)
 
         # network callbacks
         if self.network:
