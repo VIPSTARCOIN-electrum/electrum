@@ -79,8 +79,11 @@ class TokenBalanceList(MyTreeView):
         idx = self.indexAt(item.pos())
         if not idx.isValid():
             return
-        bind_addr = self.model().itemFromIndex(self.selected_in_column(self.Columns.BIND_ADDRESS)[0]).text()
-        contract_addr = self.model().itemFromIndex(self.selected_in_column(self.Columns.NAME)[0]).data(Qt.UserRole)
+        try:
+            bind_addr = self.model().itemFromIndex(self.selected_in_column(self.Columns.BIND_ADDRESS)[0]).text()
+            contract_addr = self.model().itemFromIndex(self.selected_in_column(self.Columns.NAME)[0]).data(Qt.UserRole)
+        except:
+            return
         key = '{}_{}'.format(contract_addr, bind_addr)
         token = self.parent.wallet.db.get_token(key)
         self.parent.token_send_dialog(token)
