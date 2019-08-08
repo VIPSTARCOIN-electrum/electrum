@@ -558,10 +558,6 @@ class Interface(Logger):
             height, header, bad, bad_header = await self._search_headers_backwards(height, header)
             chain = blockchain.check_header(header) if 'mock' not in header else header['mock']['check'](header)
             can_connect = blockchain.can_connect(header) if 'mock' not in header else header['mock']['connect'](height)
-            if header['merkle_root'] == bad_header['merkle_root'] and header['timestamp'] == bad_header['timestamp'] \
-               and header['bits'] == bad_header['bits'] and header['block_height'] == bad_header['block_height']:
-                self.logger.info(f"connect pass {height}")
-                return 'catchup', height
             assert chain or can_connect
         if can_connect:
             self.logger.info(f"could connect {height}")

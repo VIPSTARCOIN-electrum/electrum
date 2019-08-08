@@ -263,9 +263,6 @@ class Network(Logger):
         self.callback_lock = threading.Lock()
         self.recent_servers_lock = threading.RLock()       # <- re-entrant
         self.interfaces_lock = threading.Lock()            # for mutating/iterating self.interfaces
-        self.subscribed_addresses_lock = threading.Lock()
-        self.subscribed_tokens_lock = threading.Lock()
-        self.blockchains_lock = threading.Lock()
 
         self.server_peers = {}  # returned by interface (servers that the main interface knows about)
         self.recent_servers = self._read_recent_servers()  # note: needs self.recent_servers_lock
@@ -278,10 +275,6 @@ class Network(Logger):
 
         dir_path = os.path.join(self.config.path, 'certs')
         util.make_dir(dir_path)
-
-        # subscriptions and requests
-        self.subscribed_addresses = set()   # note: needs self.subscribed_addresses_lock
-        self.subscribed_tokens = set()      # note: needs self.subscribed_tokens_lock
 
         # retry times
         self.server_retry_time = time.time()
