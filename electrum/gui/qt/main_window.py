@@ -56,7 +56,7 @@ from electrum.bitcoin import COIN, is_address, TYPE_ADDRESS, TYPE_SCRIPT, is_has
 from electrum.crypto import hash_160
 from electrum.plugin import run_hook
 from electrum.i18n import _
-from electrum.util import (format_time, format_satoshis, format_fee_satoshis,
+from electrum.util import (format_time, format_satoshis, format_tokens, format_fee_satoshis,
                            format_satoshis_plain, NotEnoughFunds,
                            UserCancelled, NoDynamicFeeEstimates, profiler,
                            export_meta, import_meta, bh2u, bfh, InvalidPassword,
@@ -831,6 +831,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
 
     def format_amount(self, x, is_diff=False, whitespaces=False):
         return format_satoshis(x, self.num_zeros, self.decimal_point, is_diff=is_diff, whitespaces=whitespaces)
+
+    def format_token_amount(self, x, decimal_point, is_diff=False, whitespaces=False):
+        return format_tokens(x, self.num_zeros, decimal_point, is_diff=is_diff, whitespaces=whitespaces)
 
     def format_amount_and_units(self, amount):
         text = self.format_amount(amount) + ' '+ self.base_unit()
@@ -3373,6 +3376,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             self.network.unregister_callback(self.on_network)
             self.network.unregister_callback(self.on_quotes)
             self.network.unregister_callback(self.on_history)
+            self.network.unregister_callback(self.on_token)
         self.config.set_key("is_maximized", self.isMaximized())
         if not self.isMaximized():
             g = self.geometry()
@@ -3625,7 +3629,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             datahex = 'a9059cbb{}{:064x}'.format(pay_to.zfill(64), amount)
             script = contract_script(gas_limit, gas_price, datahex, token[0], opcodes.OP_CALL)
             outputs = [TxOutput(TYPE_SCRIPT, script, 0), ]
-            tx_desc = _('pay out {} {}').format(amount / (10 ** token[4]), token[3])
+            tx_desc = _('Pay out {} {}').format(amount / (10 ** token[4]), token[3])
             self._smart_contract_broadcast(outputs, tx_desc, gas_limit * gas_price,
                                            token[1], dialog, None, preview)
         except (BaseException,) as e:
@@ -3770,7 +3774,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
                 abi_encoded = vips_abi_encode(constructor, args)
             script = contract_script(gas_limit, gas_price, bytecode + abi_encoded, None, opcodes.OP_CREATE)
             outputs = [TxOutput(TYPE_SCRIPT, script, 0), ]
-            self._smart_contract_broadcast(outputs, 'create contract {}'.format(name), gas_limit * gas_price,
+            self._smart_contract_broadcast(outputs, 'Create contract {}'.format(name), gas_limit * gas_price,
                                            sender, dialog, broadcast_done, preview)
         except (BaseException,) as e:
             import traceback, sys

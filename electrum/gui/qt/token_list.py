@@ -57,9 +57,7 @@ class TokenBalanceList(MyTreeView):
         self.update_headers(headers)
         for key in sorted(self.parent.wallet.db.list_tokens()):
             token = self.parent.wallet.db.get_token(key)
-            balance_str = '{}'.format(token[5] / 10 ** token[4])
-            # balance_str = format_satoshis(token.balance, is_diff=False, num_zeros=0,
-            #                               decimal_point=token.decimals, whitespaces=True)
+            balance_str = self.parent.format_token_amount(token[5], token[4], is_diff=False, whitespaces=True)
             labels = [token[2], token[1], balance_str]
             item = [QStandardItem(e) for e in labels]
             item[self.Columns.NAME].setData(token[0], Qt.UserRole)
@@ -178,10 +176,9 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
         from_addr = tx_item['from_addr']
         to_addr = tx_item['to_addr']
         if to_addr == bind_addr:
-            balance_str = '+'
+            balance_str = '{}'.format(tx_item['amount'])
         else:
-            balance_str = '-'
-        balance_str += '{}'.format(tx_item['amount'] / 10 ** token[4])
+            balance_str = '-' + '{}'.format(tx_item['amount'])
         try:
             status, status_str = self.tx_status_cache[tx_hash]
         except KeyError:
@@ -208,7 +205,7 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
                 return QVariant(read_QIcon(TX_ICONS[status]))
             elif col == TokenHistoryColumns.STATUS_ICON and role == Qt.ToolTipRole:
                 return QVariant(str(conf) + _(" confirmation" + ("s" if conf != 1 else "")))
-            elif col > TokenHistoryColumns.BIND_ADDRESS and role == Qt.TextAlignmentRole:
+            elif col > TokenHistoryColumns.TOKEN and role == Qt.TextAlignmentRole:
                 return QVariant(Qt.AlignRight | Qt.AlignVCenter)
             elif col != TokenHistoryColumns.DATE and role == Qt.FontRole:
                 monospace_font = QFont(MONOSPACE_FONT)
@@ -226,7 +223,8 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
         elif col == TokenHistoryColumns.TOKEN:
             return QVariant(token[2])
         elif col == TokenHistoryColumns.AMOUNT:
-            return QVariant(balance_str)
+            a_str = self.parent.format_token_amount(balance_str, token[4], is_diff=True, whitespaces=True)
+            return QVariant(a_str)
         elif col == TokenHistoryColumns.TXID:
             return QVariant(tx_hash)
         elif col == TokenHistoryColumns.TO_ADDR:
@@ -397,7 +395,7 @@ class TokenHistoryList(MyTreeView):
             column_title = self.thm.headerData(column, Qt.Horizontal, Qt.DisplayRole)
             column_data = self.thm.data(idx, Qt.DisplayRole).value()
         tx_hash = tx_item['txid']
-        tx = self.wallet.db.get_transaction(tx_hash)
+        tx = self.wallet.db.get_token_tx(tx_hash)
         if not tx:
             return
         tx_URL = block_explorer_URL(self.config, {'tx': tx_hash})

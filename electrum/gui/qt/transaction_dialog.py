@@ -523,10 +523,12 @@ class TokenTxDialog(QDialog, MessageBoxMixin):
         tx_mined_status = tx_details.tx_mined_status
         exp_n = tx_details.mempool_depth_bytes
         size = self.tx.estimated_size()
+        conf = '{}'.format(tx_mined_status.conf)
         token_unit = self.token[3]
-        amount = '{}'.format(self.tx_item['amount'] / 10 ** self.token[4])
+        amount = self.main_window.format_token_amount(self.tx_item['amount'], self.token[4])
         self.tx_hash_e.setText(tx_details.txid or _('Unknown'))
-        self.status_label.setText(_('Status:') + ' ' + tx_details.status)
+        self.status_label.setText(_('Status:') + ' ' + conf + ' confirmation' + ('s' if conf != '1' else ''))
+#        self.status_label.setText(_('Status:') + ' ' + tx_details.status)
 
         if tx_mined_status.timestamp:
             time_str = datetime.datetime.fromtimestamp(tx_mined_status.timestamp).isoformat(' ')[:-3]

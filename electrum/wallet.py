@@ -722,15 +722,13 @@ class Abstract_Wallet(AddressSynchronizer):
         is_mined = False
         is_staked = False
         tx = None
-        try:
-            tx = self.db.get_transaction(tx_hash)
-            if not tx:
-                tx = self.db.get_token_tx(tx_hash)
-
+        tx = self.db.get_transaction(tx_hash)
+        if tx:
             is_mined = tx.inputs()[0]['type'] == 'coinbase'
             is_staked = tx.outputs()[0].type == TYPE_STAKE
-        except (BaseException,) as e:
-            _logger.info(f"get_tx_status {e}")
+        else:
+            tx = self.db.get_token_tx(tx_hash)
+
         if conf == 0:
             tx = self.db.get_transaction(tx_hash)
             if not tx:
