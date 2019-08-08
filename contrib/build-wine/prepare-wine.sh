@@ -17,8 +17,8 @@ LIBUSB_FILENAME=libusb-1.0.22.7z
 LIBUSB_URL=https://prdownloads.sourceforge.net/project/libusb/libusb-1.0/libusb-1.0.22/$LIBUSB_FILENAME?download
 LIBUSB_SHA256=671f1a420757b4480e7fadc8313d6fb3cbb75ca00934c417c1efa6e77fb8779b
 
-#PYINSTALLER_REPO="https://github.com/SomberNight/pyinstaller.git"
-#PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
+PYINSTALLER_REPO="https://github.com/SomberNight/pyinstaller.git"
+PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
 # ^ tag 3.4, plus a custom commit that fixes cross-compilation with MinGW
 
 CYTOOLZ_URL="https://github.com/y-chan/cytoolz/releases/download/0.10.0/cytoolz-0.10.0-cp36-cp36m-win32.whl"
@@ -96,8 +96,8 @@ cp "$CACHEDIR/secp256k1/libsecp256k1.dll" $WINEPREFIX/drive_c/tmp/
 
 
 info "Building PyInstaller."
- we build our own PyInstaller boot loader as the default one has high
- anti-virus false positives
+# we build our own PyInstaller boot loader as the default one has high
+# anti-virus false positives
 (
     cd "$WINEPREFIX/drive_c/electrum-vips"
     ELECTRUM_COMMIT_HASH=$(git rev-parse HEAD)
