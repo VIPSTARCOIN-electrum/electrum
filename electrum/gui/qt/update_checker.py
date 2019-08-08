@@ -23,7 +23,7 @@ class UpdateCheck(QWidget, Logger):
     download_url = "https://electrum-vips.info"
 
     VERSION_ANNOUNCEMENT_SIGNING_KEYS = (
-        "13xjmVAB1EATPP8RshTE8S8sNwwSUM9p1P",
+        "VPUp5TarpUyGfbauxqfvVH5ATCvn8QmEC5",
     )
 
     def __init__(self, main_window, latest_version=None):
