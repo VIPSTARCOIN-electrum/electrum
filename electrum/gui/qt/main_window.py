@@ -34,7 +34,7 @@ import csv
 from decimal import Decimal
 import base64
 import binascii
-import eth_abi
+import vips_abi
 from functools import partial
 import queue
 import asyncio
@@ -52,7 +52,7 @@ from PyQt5.QtWidgets import (QMessageBox, QComboBox, QSystemTrayIcon, QTabWidget
 import electrum
 from electrum import (keystore, simple_config, ecc, constants, util, bitcoin, commands,
                       coinchooser, paymentrequest)
-from electrum.bitcoin import COIN, is_address, TYPE_ADDRESS, TYPE_SCRIPT, is_hash160, b58_address_to_hash160, eth_abi_encode
+from electrum.bitcoin import COIN, is_address, TYPE_ADDRESS, TYPE_SCRIPT, is_hash160, b58_address_to_hash160, vips_abi_encode
 from electrum.crypto import hash_160
 from electrum.plugin import run_hook
 from electrum.i18n import _
@@ -3711,7 +3711,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         return True
 
     def call_smart_contract(self, address, abi, args, sender, dialog):
-        data = eth_abi_encode(abi, args)
+        data = vips_abi_encode(abi, args)
         try:
             result = self.network.run_from_another_thread(self.network.call_contract(address, data, sender))
         except BaseException as e:
@@ -3722,9 +3722,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         types = list([x['type'] for x in abi.get('outputs', [])])
         try:
             if isinstance(result, dict):
-                output = eth_abi.decode_abi(types, binascii.a2b_hex(result['executionResult']['output']))
+                output = vips_abi.decode_abi(types, binascii.a2b_hex(result['executionResult']['output']))
             else:
-                output = eth_abi.decode_abi(types, binascii.a2b_hex(result))
+                output = vips_abi.decode_abi(types, binascii.a2b_hex(result))
 
             def decode_x(x):
                 if isinstance(x, bytes):
@@ -3745,7 +3745,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
 
     def sendto_smart_contract(self, address, abi, args, gas_limit, gas_price, amount, sender, dialog, preview):
         try:
-            abi_encoded = eth_abi_encode(abi, args)
+            abi_encoded = vips_abi_encode(abi, args)
             script = contract_script(gas_limit, gas_price, abi_encoded, address, opcodes.OP_CALL)
             outputs = [TxOutput(TYPE_SCRIPT, script, amount), ]
             tx_desc = 'contract sendto {}'.format(self.smart_contracts[address][0])
@@ -3767,7 +3767,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         try:
             abi_encoded = ''
             if constructor:
-                abi_encoded = eth_abi_encode(constructor, args)
+                abi_encoded = vips_abi_encode(constructor, args)
             script = contract_script(gas_limit, gas_price, bytecode + abi_encoded, None, opcodes.OP_CREATE)
             outputs = [TxOutput(TYPE_SCRIPT, script, 0), ]
             self._smart_contract_broadcast(outputs, 'create contract {}'.format(name), gas_limit * gas_price,

@@ -95,36 +95,33 @@ mkdir -p $WINEPREFIX/drive_c/tmp
 cp "$CACHEDIR/secp256k1/libsecp256k1.dll" $WINEPREFIX/drive_c/tmp/
 
 
-#info "Building PyInstaller."
-# we build our own PyInstaller boot loader as the default one has high
-# anti-virus false positives
-#(
-#    cd "$WINEPREFIX/drive_c/electrum-vips"
-#    ELECTRUM_COMMIT_HASH=$(git rev-parse HEAD)
-#    cd "$CACHEDIR"
-#    rm -rf pyinstaller
-#    mkdir pyinstaller
-#    cd pyinstaller
-#    # Shallow clone
-#    git init
-#    git remote add origin $PYINSTALLER_REPO
-#    git fetch --depth 1 origin $PYINSTALLER_COMMIT
-#    git checkout FETCH_HEAD
-#    rm -fv PyInstaller/bootloader/Windows-*/run*.exe || true
-#    # add reproducible randomness. this ensures we build a different bootloader for each commit.
-#    # if we built the same one for all releases, that might also get anti-virus false positives
-#    echo "const char *electrum_tag = \"tagged by Electrum@$ELECTRUM_COMMIT_HASH\";" >> ./bootloader/src/pyi_main.c
-#    pushd bootloader
-#    # cross-compile to Windows using host python
-#    python3 ./waf all CC=i686-w64-mingw32-gcc CFLAGS="-Wno-stringop-overflow -static"
-#    popd
-#    # sanity check bootloader is there:
-#    [[ -e PyInstaller/bootloader/Windows-32bit/runw.exe ]] || fail "Could not find runw.exe in target dir!"
-#) || fail "PyInstaller build failed"
-#info "Installing PyInstaller."
-#$PYTHON -m pip install --no-warn-script-location ./pyinstaller
-
+info "Building PyInstaller."
+ we build our own PyInstaller boot loader as the default one has high
+ anti-virus false positives
+(
+    cd "$WINEPREFIX/drive_c/electrum-vips"
+    ELECTRUM_COMMIT_HASH=$(git rev-parse HEAD)
+    cd "$CACHEDIR"
+    rm -rf pyinstaller
+    mkdir pyinstaller
+    cd pyinstaller
+    # Shallow clone
+    git init
+    git remote add origin $PYINSTALLER_REPO
+    git fetch --depth 1 origin $PYINSTALLER_COMMIT
+    git checkout FETCH_HEAD
+    rm -fv PyInstaller/bootloader/Windows-*/run*.exe || true
+    # add reproducible randomness. this ensures we build a different bootloader for each commit.
+    # if we built the same one for all releases, that might also get anti-virus false positives
+    echo "const char *electrum_tag = \"tagged by Electrum@$ELECTRUM_COMMIT_HASH\";" >> ./bootloader/src/pyi_main.c
+    pushd bootloader
+    # cross-compile to Windows using host python
+    python3 ./waf all CC=i686-w64-mingw32-gcc CFLAGS="-Wno-stringop-overflow -static"
+    popd
+    # sanity check bootloader is there:
+    [[ -e PyInstaller/bootloader/Windows-32bit/runw.exe ]] || fail "Could not find runw.exe in target dir!"
+) || fail "PyInstaller build failed"
 info "Installing PyInstaller."
-$PYTHON -m pip install pyinstaller==3.5 --no-use-pep517
+$PYTHON -m pip install --no-warn-script-location ./pyinstaller
 
 info "Wine is configured."

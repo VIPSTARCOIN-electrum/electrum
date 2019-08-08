@@ -27,8 +27,8 @@ import hashlib
 from typing import List, Tuple, TYPE_CHECKING, Optional, Union
 from enum import IntEnum
 
-from eth_abi import encode_abi
-from eth_utils import function_abi_to_4byte_selector
+from vips_abi import encode_abi
+from vips_utils import function_abi_to_4byte_selector
 from .util import bfh, bh2u, BitcoinException, assert_bytes, to_bytes, inv_dict, unpack_uint16_from, unpack_uint32_from, unpack_uint64_from, unpack_int32_from, unpack_int64_from
 from . import version
 from . import segwit_addr
@@ -758,11 +758,11 @@ class Deserializer(object):
         self.cursor += 8
         return result
 
-def eth_abi_encode(abi, args):
+def vips_abi_encode(abi, args):
     """
     >> abi = {"constant":True,"inputs":[{"name":"","type":"address"}],
 "name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":False,"stateMutability":"view","type":"function"}
-    >> eth_abi_encode(abi, ['9d3d4cc1986d81f9109f2b091b7732e7d9bcf63b'])
+    >> vips_abi_encode(abi, ['9d3d4cc1986d81f9109f2b091b7732e7d9bcf63b'])
     >> '70a082310000000000000000000000009d3d4cc1986d81f9109f2b091b7732e7d9bcf63b'
     ## address must be lower case
     :param abi: dict
