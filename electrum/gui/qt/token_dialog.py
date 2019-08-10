@@ -265,6 +265,8 @@ class TokenSendLayout(QGridLayout):
         if self.token.balance < amount:
             raise Exception(_('token not enough'))
         address_to = self.address_to_e.text().rstrip().lstrip()
+        if address_to == self.token.bind_addr:
+            raise Exception(_('You can not send to bind address!'))
         if is_b58_address(address_to):
             addr_type, hash160 = b58_address_to_hash160(address_to)
             if addr_type == constants.net.ADDRTYPE_P2PKH:

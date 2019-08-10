@@ -28,6 +28,7 @@ from typing import NamedTuple, List, Callable
 from decimal import Decimal
 
 from .bitcoin import sha256, COIN, TYPE_ADDRESS, is_address
+from .i18n import _
 from .transaction import Transaction, TxOutput
 from .util import NotEnoughFunds
 from .logging import Logger
@@ -548,7 +549,7 @@ class CoinChooserVIPSTARCOIN(CoinChooserBase):
                         return strip_unneeded_utxo(selected, sufficient_funds)
                     break
             if len(selected) == 0:
-                raise Exception('Sender address has no UTXO, you must to send 0.2 VIPS or more to Sender address.')
+                raise Exception(_('Sender address has no UTXO, you must to send 0.2 VIPS or more to Sender address.'))
 
         for bucket in buckets:
             selected.append(bucket)

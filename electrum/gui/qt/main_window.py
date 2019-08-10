@@ -3606,9 +3606,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.token_hist_model.refresh('set_token')
 
     def delete_token(self, key: str):
-        if not self.question(_("Remove {} from your list of tokens?".format(
-                self.wallet.db.get_token(key)[2]))):
-            return False
+        token_name = self.wallet.db.get_token(key).name
+        if not self.question(_("Remove {} from your list of tokens?")
+                             .format(token_name)):
+            return
         self.wallet.delete_token(key)
         self.token_balance_list.update()
         self.token_hist_model.refresh('remove_token')
@@ -3628,11 +3629,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
     def do_token_pay(self, token, pay_to, amount, gas_limit, gas_price, dialog, preview=False):
         try:
             datahex = 'a9059cbb{}{:064x}'.format(pay_to.zfill(64), amount)
-            script = contract_script(gas_limit, gas_price, datahex, token[0], opcodes.OP_CALL)
+            script = contract_script(gas_limit, gas_price, datahex, token.contract_addr, opcodes.OP_CALL)
             outputs = [TxOutput(TYPE_SCRIPT, script, 0), ]
-            tx_desc = _('Pay out {} {}').format(amount / (10 ** token[4]), token[3])
+            tx_desc = _('Pay out {} {}').format(amount / (10 ** token.decimals), token.symbol)
             self._smart_contract_broadcast(outputs, tx_desc, gas_limit * gas_price,
-                                           token[1], dialog, None, preview)
+                                           token.bind_addr, dialog, None, preview)
         except (BaseException,) as e:
             traceback.print_exc(file=sys.stderr)
             dialog.show_message(str(e))
@@ -3708,12 +3709,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         return True
 
     def delete_samart_contact(self, address):
-        if not self.question(_("Remove {} from your list of smart contracts?".format(
-                self.smart_contracts[address][0]))):
-            return False
+        contract_addr = self.smart_contracts[address][0]
+        if not self.question(_("Remove {} from your list of smart contracts?")
+                             .format(contract_addr)):
+            return
         self.smart_contracts.pop(address)
         self.smart_contract_list.update()
-        return True
 
     def call_smart_contract(self, address, abi, args, sender, dialog):
         data = vips_abi_encode(abi, args)
