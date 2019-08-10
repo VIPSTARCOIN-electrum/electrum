@@ -682,11 +682,11 @@ def time_difference(distance_in_time, include_seconds):
 
 mainnet_block_explorers = {
     'explorer.vipstarcoin.jp': ('http://explorer.vipstarcoin.jp/',
-			{'tx': 'tx', 'addr': 'address'}),
+                       {'tx': 'tx/', 'addr': 'address/'}),
     'vips.blockbook.japanesecoin-pool.work': ('https://vips.blockbook.japanesecoin-pool.work/',
-			{'tx': 'tx', 'addr': 'address'}),
+                       {'tx': 'tx/', 'addr': 'address/'}),
     'insight.vipstarco.in': ('https://insight.vipstarco.in/',
-			{'tx': 'tx', 'addr': 'address'}),
+                       {'tx': 'tx/', 'addr': 'address/'}),
 }
 
 testnet_block_explorers = {
@@ -720,7 +720,7 @@ def block_explorer_URL(config: 'SimpleConfig', params) -> Optional[str]:
     addr = params.get('addr')
     if token:
         if 'insight.vipstarco.in' in be_tuple[0]:
-            return "{}/token/{}?a={}".format(be_tuple[0], token, addr)
+            return "{}token/{}?a={}".format(be_tuple[0], token, addr)
 
     url_parts = [be_tuple[0], ]
     for k, v in params.items():
@@ -729,7 +729,7 @@ def block_explorer_URL(config: 'SimpleConfig', params) -> Optional[str]:
             continue
         url_parts.append(kind_str)
         url_parts.append(v)
-    return "/".join(url_parts)
+    return ''.join(url_parts)
 
 # URL decode
 #_ud = re.compile('%([0-9a-hA-H]{2})', re.MULTILINE)

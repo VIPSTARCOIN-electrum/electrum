@@ -57,10 +57,10 @@ class TokenBalanceList(MyTreeView):
         self.update_headers(headers)
         for key in sorted(self.parent.wallet.db.list_tokens()):
             token = self.parent.wallet.db.get_token(key)
-            balance_str = self.parent.format_token_amount(token[5], token[4], is_diff=False, whitespaces=True)
-            labels = [token[2], token[1], balance_str]
+            balance_str = self.parent.format_token_amount(token.balance, token.decimals, is_diff=False, whitespaces=True)
+            labels = [token.name, token.bind_addr, balance_str]
             item = [QStandardItem(e) for e in labels]
-            item[self.Columns.NAME].setData(token[0], Qt.UserRole)
+            item[self.Columns.NAME].setData(token.contract_addr, Qt.UserRole)
             item[self.Columns.NAME].setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             item[self.Columns.BALANCE].setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             item[self.Columns.BALANCE].setFont(QFont(MONOSPACE_FONT))
@@ -193,7 +193,7 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
                     (conf, -status, -height, -txpos),
                 TokenHistoryColumns.DATE: status_str,
                 TokenHistoryColumns.BIND_ADDRESS: bind_addr,
-                TokenHistoryColumns.TOKEN: token[2],
+                TokenHistoryColumns.TOKEN: token.name,
                 TokenHistoryColumns.AMOUNT: balance_str,
                 TokenHistoryColumns.TXID: tx_hash,
                 TokenHistoryColumns.TO_ADDR: tx_item['to_addr'],
@@ -221,9 +221,9 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
         elif col == TokenHistoryColumns.BIND_ADDRESS:
             return QVariant(bind_addr)
         elif col == TokenHistoryColumns.TOKEN:
-            return QVariant(token[2])
+            return QVariant(token.name)
         elif col == TokenHistoryColumns.AMOUNT:
-            a_str = self.parent.format_token_amount(balance_str, token[4], is_diff=True, whitespaces=True)
+            a_str = self.parent.format_token_amount(balance_str, token.decimals, is_diff=True, whitespaces=True)
             return QVariant(a_str)
         elif col == TokenHistoryColumns.TXID:
             return QVariant(tx_hash)

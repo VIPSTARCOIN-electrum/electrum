@@ -644,7 +644,7 @@ class Abstract_Wallet(AddressSynchronizer):
                         item = {
                             'from_addr': from_addr,
                             'to_addr': to_addr,
-                            'bind_addr': self.db.get_token(key)[1],
+                            'bind_addr': self.db.get_token(key).bind_addr,
                             'amount': amount,
                             'token_key': key,
                             'txid': txid,

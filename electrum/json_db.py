@@ -36,6 +36,7 @@ from .util import profiler, WalletFileException, multisig_type, TxMinedInfo
 from .keystore import bip44_derivation
 from .transaction import Transaction
 from .logging import Logger
+from .tokens import Token
 
 # seed_version is now used for the version of the wallet file
 
@@ -643,7 +644,7 @@ class JsonDB(Logger):
 
     @locked
     def get_token(self, key):
-        return self.tokens.get(key)
+        return Token(*self.tokens.get(key))
 
     @locked
     def list_tokens(self):

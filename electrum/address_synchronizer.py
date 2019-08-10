@@ -37,7 +37,6 @@ from .verifier import SPV
 from .blockchain import hash_header, TOKEN_TRANSFER_TOPIC
 from .i18n import _
 from .logging import Logger
-from .tokens import Tokens
 from operator import itemgetter
 
 if TYPE_CHECKING:

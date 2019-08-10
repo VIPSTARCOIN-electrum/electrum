@@ -158,11 +158,11 @@ class TokenInfoLayout(QGridLayout):
         self.update()
 
     def update(self):
-        self.contract_addr_e.setText(self.token[0])
-        self.address_e.setText(self.token[1])
-        self.name_e.setText(self.token[2])
-        self.symbol_e.setText(self.token[3])
-        self.decimals_e.setText(str(self.token[4]))
+        self.contract_addr_e.setText(self.token.contract_addr)
+        self.address_e.setText(self.token.bind_addr)
+        self.name_e.setText(self.token.name)
+        self.symbol_e.setText(self.token.symbol)
+        self.decimals_e.setText(str(self.token.decimals))
 
 
 class TokenInfoDialog(QDialog, MessageBoxMixin):
@@ -200,7 +200,7 @@ class TokenSendLayout(QGridLayout):
         self.address_e = QLineEdit()
         self.address_e.setMinimumWidth(300)
         self.address_e.setReadOnly(True)
-        self.address_e.setText(token[1])
+        self.address_e.setText(token.bind_addr)
         self.addWidget(address_lb, 1, 0)
         self.addWidget(self.address_e, 1, 1, 1, -1)
 
@@ -211,7 +211,7 @@ class TokenSendLayout(QGridLayout):
         self.addWidget(self.address_to_e, 2, 1, 1, -1)
 
         amount_lb = QLabel(_("Amount:"))
-        self.amount_e = AmountEdit(lambda: self.token[3], False, None, self.token[4], 0)
+        self.amount_e = AmountEdit(lambda: token.symbol, False, None, token.decimals, 0)
         self.addWidget(amount_lb, 3, 0)
         self.addWidget(self.amount_e, 3, 1, 1, -1)
 
@@ -255,14 +255,14 @@ class TokenSendLayout(QGridLayout):
             return int(edit.get_amount() * times)
 
         return parse_edit_value(self.gas_limit_e, 1), parse_edit_value(self.gas_price_e), parse_edit_value(
-            self.amount_e, 10 ** self.token[4])
+            self.amount_e, 10 ** self.token.decimals)
 
     def get_inputs(self):
         try:
             gas_limit, gas_price, amount = self.parse_values()
         except (BaseException,) as e:
             raise e
-        if self.token[5] < amount:
+        if self.token.balance < amount:
             raise Exception(_('token not enough'))
         address_to = self.address_to_e.text().rstrip().lstrip()
         if is_b58_address(address_to):
@@ -300,7 +300,7 @@ class TokenSendDialog(QDialog, MessageBoxMixin):
         if not token:
             self.dialog.show_message("Empty data")
             return
-        self.setWindowTitle(_('Send') + " " + token[3])
+        self.setWindowTitle(_('Send') + " " + token.symbol)
         layout = TokenSendLayout(self, token, self.do_send)
         self.setLayout(layout)
 

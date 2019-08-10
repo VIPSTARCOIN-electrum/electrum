@@ -206,8 +206,6 @@ class Synchronizer(SynchronizerBase):
         self.requested_token_histories = set()
         self.requested_token_txs = {}
 
-        self.lock = Lock()
-
     def diagnostic_name(self):
         return self.wallet.diagnostic_name()
 
@@ -276,11 +274,12 @@ class Synchronizer(SynchronizerBase):
         self.requested_token_histories.add((key, status))
         token = self.wallet.db.get_token(key)
         self._requests_token_sent += 1
-        result = await self.network.request_token_history(token[1], token[0])
+        result = await self.network.request_token_history(token.bind_addr, token.contract_addr)
         self._requests_token_answered += 1
         self.logger.info(f"receiving token history {key} {len(result)}")
-        token_balance = await self.network.request_token_balance(token[1], token[0])
-        if token[5] != token_balance:
+        token_balance = await self.network.request_token_balance(token.bind_addr, token.contract_addr)
+        if token.balance != token_balance:
+            token = list(token)
             token[5] = token_balance
             self.wallet.db.add_token(key, token)
         hist = list(map(lambda item: (item['tx_hash'], item['height'], item['log_index']), result))
@@ -432,8 +431,9 @@ class Synchronizer(SynchronizerBase):
     	# request tokens and missing token txns
         for key in self.wallet.db.list_tokens():
             token = self.wallet.db.get_token(key)
-            token_balance = await self.network.request_token_balance(token[1], token[0])
-            if token[5] != token_balance:
+            token_balance = await self.network.request_token_balance(token.bind_addr, token.contract_addr)
+            if token.balance != token_balance:
+                token = list(token)
                 token[5] = token_balance
                 self.wallet.db.add_token(key, token)
 
