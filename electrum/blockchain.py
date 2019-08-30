@@ -764,7 +764,6 @@ class Blockchain(Logger):
             return False
         headers = {}
         headers[header.get('block_height')] = header
-        check_header_bool = True
         try:
             target = self.get_target(height, headers)
         except MissingHeader:

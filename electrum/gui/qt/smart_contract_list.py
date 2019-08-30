@@ -37,7 +37,10 @@ class SmartContractList(MyTreeView):
         idx = self.indexAt(item.pos())
         if not idx.isValid():
             return
-        address = self.model().itemFromIndex(self.selected_in_column(self.Columns.ADDRESS)[0]).text()
+        try:
+            address = self.model().itemFromIndex(self.selected_in_column(self.Columns.ADDRESS)[0]).text()
+        except:
+            return
         self.parent.contract_func_dialog(address)
 
     def create_menu(self, position):

@@ -522,7 +522,7 @@ class Interface(Logger):
         last = None
         while last is None or height <= next_height:
             prev_last, prev_height = last, height
-            if next_height > height + 10:
+            if next_height > height + 3:
                 could_connect, num_headers = await self.request_chunk(height, next_height)
                 if not could_connect:
                     if height <= constants.net.max_checkpoint():

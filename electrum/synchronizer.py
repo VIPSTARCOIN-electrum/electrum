@@ -290,7 +290,7 @@ class Synchronizer(SynchronizerBase):
 
         # Check that txids are unique
         if len(hashes) != len(result):
-            print("error: server token history has non-unique txid_logindexs: %s" % key)
+            self.logger.info(f"error: server token history has non-unique txid_logindexs: {key}")
         # Check that the status corresponds to what was announced
         else:
             # Store received history
