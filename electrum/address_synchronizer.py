@@ -484,6 +484,55 @@ class AddressSynchronizer(Logger):
 
         return h2
 
+
+    @with_local_height_cached
+    def get_token_history(self, contract_addr=None, bind_addr=None):
+        h = []
+        keys = []
+        for token_key in self.db.list_tokens():
+            if contract_addr and contract_addr in token_key \
+                    or bind_addr and bind_addr in token_key \
+                    or not bind_addr and not contract_addr:
+                keys.append(token_key)
+        for key in keys:
+            contract_addr, bind_addr = key.split('_')
+            for txid, height, log_index in self.db.get_key_token_history(key):
+                tx_mined_status = self.get_tx_height(txid)
+                for call_index, contract_call in enumerate(self.db.get_tx_receipt(txid)):
+                    logs = contract_call.get('log', [])
+                    if len(logs) > log_index:
+                        log = logs[log_index]
+
+                        # check contarct address
+                        if contract_addr != log.get('address', ''):
+                            self.logger.info("contract address mismatch")
+                            continue
+
+                        # check topic name
+                        topics = log.get('topics', [])
+                        if len(topics) < 3:
+                            self.logger.info("not enough topics")
+                            continue
+                        if topics[0] != TOKEN_TRANSFER_TOPIC:
+                            self.logger.info("topic mismatch")
+                            continue
+
+                        # check user bind address
+                        _, hash160b = b58_address_to_hash160(bind_addr)
+                        hash160 = bh2u(hash160b).zfill(64)
+                        if hash160 not in topics:
+                            self.logger.info("address mismatch")
+                            continue
+                        amount = int(log.get('data'), 16)
+                        from_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[1][-40:]))
+                        to_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[2][-40:]))
+                        if bind_addr == from_addr:
+                            amount = -1 * amount
+                        token = self.db.get_token(key)
+                        h.append((txid, tx_mined_status, token, amount, from_addr, to_addr))
+        h.sort(key = lambda x: self.get_txpos(x[0]))
+        return h
+
     def _add_tx_to_local_history(self, txid):
         with self.transaction_lock:
             for addr in itertools.chain(self.db.get_txi(txid), self.db.get_txo(txid)):

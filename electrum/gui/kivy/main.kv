@@ -10,7 +10,7 @@
 
 <Label>
     markup: True
-    font_name: 'Roboto'
+    font_name: 'JP'
     font_size: '16sp'
     bound: False
     on_text: if isinstance(self.text, _) and not self.bound: self.bound=True; _.bind(self)
@@ -150,6 +150,35 @@
 <TxHashLabel@RefLabel>
     data: ''
     text: ' '.join(map(''.join, zip(*[iter(self.data)]*4))) if self.data else ''
+
+<TokenLabel@RefLabel>
+    data: ''
+    text: self.data if self.data else ''
+
+<AddTokenItem@ButtonBehavior+BoxLayout>
+    orientation: 'vertical'
+    title: ''
+    description: ''
+    size_hint: 1, None
+    height: '60dp'
+    canvas.before:
+        Color:
+            rgba: (0.192, .498, 0.745, 1) if self.state == 'down' else (0.3, 0.3, 0.3, 0)
+        Rectangle:
+            size: self.size
+            pos: self.pos
+    on_release:
+        Clock.schedule_once(self.action)
+    Widget
+    TopLabel:
+        id: title
+        text: self.parent.title
+        halign: 'left'
+    TopLabel:
+        text: self.parent.description
+        color: 0.8, 0.8, 0.8, 1
+        halign: 'left'
+    Widget
 
 <InfoBubble>
     size_hint: None, None
@@ -372,7 +401,7 @@
     TabbedCarousel:
         id: panel
         tab_height: '48dp'
-        tab_width: panel.width/3
+        tab_width: panel.width/4
         strip_border: 0, 0, 0, 0
         SendScreen:
             id: send_screen
@@ -383,6 +412,12 @@
         ReceiveScreen:
             id: receive_screen
             tab: receive_tab
+        TokensScreen:
+            id: tokens_screen
+            tab: tokens_tab
+        TokenHistoryScreen:
+            id: token_history_screen
+            tab: token_history_tab
         CleanHeader:
             id: send_tab
             text: _('Send')
@@ -395,6 +430,14 @@
             id: receive_tab
             text: _('Receive')
             slide: 2
+        CleanHeader:
+            id: tokens_tab
+            text: _('Tokens')
+            slide: 3
+        CleanHeader:
+            id: token_history_tab
+            text: _('Token History')
+            slide: 4
 
 
 <ActionOvrButton@ActionButton>

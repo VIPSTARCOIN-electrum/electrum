@@ -541,6 +541,12 @@ def format_satoshis_plain(x, decimal_point = 8):
     scale_factor = pow(10, decimal_point)
     return "{:.8f}".format(Decimal(x) / scale_factor).rstrip('0').rstrip('.')
 
+def format_token_plain(x, decimal_point = 0):
+    """Display a satoshi amount scaled.  Always uses a '.' as a decimal
+    point and has no thousands separator"""
+    scale_factor = pow(10, decimal_point)
+    return "{:.8f}".format(Decimal(x) / scale_factor).rstrip('0').rstrip('.')
+
 
 DECIMAL_POINT = localeconv()['decimal_point']
 
@@ -737,6 +743,7 @@ def block_explorer_URL(config: 'SimpleConfig', params) -> Optional[str]:
 
 class InvalidBitcoinURI(Exception): pass
 
+class InvalidTokenURI(Exception): pass
 
 def parse_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
     """Raises InvalidBitcoinURI on malformed URI."""
@@ -748,12 +755,12 @@ def parse_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
 
     if ':' not in uri:
         if not bitcoin.is_address(uri):
-            raise InvalidBitcoinURI("Not a bitcoin address")
+            raise InvalidBitcoinURI("Not a vipstarcoin address")
         return {'address': uri}
 
     u = urllib.parse.urlparse(uri)
-    if u.scheme != 'bitcoin':
-        raise InvalidBitcoinURI("Not a bitcoin URI")
+    if u.scheme != 'vipstarcoin':
+        raise InvalidBitcoinURI("Not a vipstarcoin URI")
     address = u.path
 
     # python for android fails to parse query
@@ -770,7 +777,7 @@ def parse_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
     out = {k: v[0] for k, v in pq.items()}
     if address:
         if not bitcoin.is_address(address):
-            raise InvalidBitcoinURI(f"Invalid bitcoin address: {address}")
+            raise InvalidBitcoinURI(f"Invalid vipstarcoin address: {address}")
         out['address'] = address
     if 'amount' in out:
         am = out['amount']
@@ -822,6 +829,53 @@ def parse_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
 
     return out
 
+
+def parse_token_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
+    """Raises InvalidTokenURI on malformed URI."""
+    from . import bitcoin
+    from .bitcoin import COIN
+
+    if not isinstance(uri, str):
+        raise InvalidTokenURI(f"expected string, not {repr(uri)}")
+
+    if ':' not in uri:
+        return {'contract_addr': uri}
+
+    u = urllib.parse.urlparse(uri)
+    if u.scheme != 'vipstoken':
+        raise InvalidTokenURI("Not a vipstoken URI")
+    address = u.path
+
+    # python for android fails to parse query
+    if address.find('?') > 0:
+        address, query = u.path.split('?')
+        pq = urllib.parse.parse_qs(query)
+    else:
+        pq = urllib.parse.parse_qs(u.query)
+
+    for k, v in pq.items():
+        if len(v) != 1:
+            raise InvalidTokenURI(f'Duplicate Key: {repr(k)}')
+
+    out = {k: v[0] for k, v in pq.items()}
+    if address:
+        out['contract_addr'] = address
+    if 'amount' in out:
+        am = out['amount']
+        try:
+            m = re.match(r'([0-9.]+)X([0-9])', am)
+            if m:
+                k = int(m.group(2)) - 8
+                amount = Decimal(m.group(1)) * pow(  Decimal(10) , k)
+            else:
+                amount = Decimal(am) * COIN
+            out['amount'] = int(amount)
+        except Exception as e:
+            raise InvalidTokenURI(f"failed to parse 'amount' field: {repr(e)}") from e
+    if 'to_addr' in out:
+        out['to_addr'] = out['to_addr']
+
+    return out
 
 def create_bip21_uri(addr, amount_sat: Optional[int], message: Optional[str],
                      *, extra_query_params: Optional[dict] = None) -> str:

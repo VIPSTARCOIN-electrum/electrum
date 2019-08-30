@@ -1,0 +1,59 @@
+#:import _ electrum.gui.kivy.i18n._
+#:import Factory kivy.factory.Factory
+#:set font_light 'electrum/gui/kivy/data/fonts/Roboto-Condensed.ttf'
+#:set btc_symbol chr(171)
+#:set mbtc_symbol chr(187)
+
+
+
+<TokensItem@CardItem>
+    name: ''
+    symbol: ''
+    decimals: 0
+    balance: '--'
+    bind_addr: ''
+    contract_addr: ''
+    BoxLayout:
+        orientation: 'vertical'
+        Widget
+        CardLabel:
+            text: root.name
+            font_size: '15sp'
+        CardLabel:
+            color: .699, .699, .699, 1
+            font_size: '14sp'
+            shorten: True
+            text: 'Bind Address :' + root.bind_addr
+        CardLabel:
+            color: .699, .699, .699, 1
+            font_size: '14sp'
+            shorten: True
+            text: root.balance
+        Widget
+
+
+<TokensRecycleView>:
+    viewclass: 'TokensItem'
+    RecycleBoxLayout:
+        default_size: None, dp(80)
+        default_size_hint: 1, None
+        size_hint: 1, None
+        height: self.minimum_height
+        orientation: 'vertical'
+
+
+TokensScreen:
+    name: 'tokens'
+    content: tokens_container
+    BoxLayout:
+        orientation: 'vertical'
+        Button:
+            text: _('Add Token')
+            markup: True
+            color: .9, .9, .9, 1
+            size_hint: 1, 0.25
+            on_release: app.add_token()
+        TokensRecycleView:
+            id: tokens_container
+            scroll_type: ['bars', 'content']
+            bar_width: '25dp'
