@@ -450,6 +450,15 @@ class TokensScreen(CScreen):
         super(TokensScreen, self).__init__(**kwargs)
         self.menu_actions = [ ('Send Token', self.send_token), ('Token Info', self.show_token)]
 
+    def token_enabled(self):
+        from electrum import bitcoin, constants
+        addresses = self.app.wallet.get_addresses_sort_by_balance()
+        try:
+            addr_type, __ = bitcoin.b58_address_to_hash160(addresses[0])
+        except:
+            addr_type = constants.net.SEGWIT_HRP
+        return addr_type == constants.net.ADDRTYPE_P2PKH
+
     def send_token(self, obj):
         token = obj.token
         self.app.send_token_dialog(token)
@@ -474,6 +483,7 @@ class TokensScreen(CScreen):
     def update(self, see_all=False):
         if self.app.wallet is None:
             return
+        self.token_enabled()
         tokens = reversed(self.app.wallet.db.list_tokens())
         tokens_card = self.screen.ids.tokens_container
         tokens_card.data = [self.get_card(item) for item in tokens]

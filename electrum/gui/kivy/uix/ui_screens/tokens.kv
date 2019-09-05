@@ -49,6 +49,7 @@ TokensScreen:
         orientation: 'vertical'
         Button:
             text: _('Add Token')
+            disabled: not root.token_enabled()
             markup: True
             color: .9, .9, .9, 1
             size_hint: 1, 0.25

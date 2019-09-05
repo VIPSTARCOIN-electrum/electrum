@@ -42,7 +42,10 @@ requirements =
     plyer,
     kivy==82d561d62577757d478df52173610f925c05ecab,
     libffi,
-    libsecp256k1
+    libsecp256k1,
+    vips_abi,
+    vips_utils,
+    vips_hash
 
 # (str) Presplash of the application
 #presplash.filename = %(source.dir)s/gui/kivy/theming/splash.png
