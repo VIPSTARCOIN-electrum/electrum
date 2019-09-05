@@ -45,7 +45,8 @@ requirements =
     libsecp256k1,
     vips_abi,
     vips_utils,
-    vips_hash
+    vips_hash,
+    eth_typing
 
 # (str) Presplash of the application
 #presplash.filename = %(source.dir)s/gui/kivy/theming/splash.png
