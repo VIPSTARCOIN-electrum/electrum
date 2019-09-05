@@ -46,7 +46,8 @@ requirements =
     vips_abi,
     vips_utils,
     vips_hash,
-    eth_typing
+    eth_typing,
+    pycryptodome
 
 # (str) Presplash of the application
 #presplash.filename = %(source.dir)s/gui/kivy/theming/splash.png
