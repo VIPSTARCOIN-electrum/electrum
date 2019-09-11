@@ -13,7 +13,7 @@ from kivy.uix.button import Button
 from .question import Question
 from electrum.gui.kivy.i18n import _
 
-from electrum.util import InvalidPassword, InvalidTokenURI, parse_token_URI
+from electrum.util import InvalidPassword, InvalidBitcoinURI, InvalidTokenURI, parse_URI, parse_token_URI
 from electrum.address_synchronizer import TX_HEIGHT_LOCAL
 from electrum.wallet import CannotBumpFee
 
@@ -182,6 +182,14 @@ class SendTokenDialog(Factory.Popup):
         if not self.app.wallet:
             self.payment_request_queued = text
             return
+        if data.startswith('vipstarcoin:'):
+            try:
+                bitcoin_uri = parse_URI(text)
+            except InvalidBitcoinURI as e:
+                self.app.show_error(_("Error parsing URI") + f":\n{e}")
+                return
+            address = bitcoin_uri.get('address', '')
+            text = "vipstoken:{}?to_addr={}".format(self.contract_addr, address)
         try:
             uri = parse_token_URI(text)
         except InvalidTokenURI as e:
@@ -207,15 +215,15 @@ class SendTokenDialog(Factory.Popup):
             self.set_URI(uri)
             return
         if is_address(data):
-            self.show_info(_("QR data isn't p2pkh address."))
+            self.app.show_info(_("QR data isn't p2pkh address."))
             return
-        if data.startswith('vipstarcoin:'):
-            self.show_info(_("QR data is bitcoin URI."))
-            return
-        if match_token(data):
-            self.show_info(_("QR data is Contract Address."))
+        if self.match_token(data):
+            self.app.show_info(_("QR data is Contract Address."))
             return
         if data.startswith('vipstoken:'):
+            self.set_URI(data)
+            return
+        if data.startswith('vipstarcoin:'):
             self.set_URI(data)
             return
         # try to decode transaction
@@ -228,10 +236,10 @@ class SendTokenDialog(Factory.Popup):
         except:
             tx = None
         if tx:
-            self.show_info(_("QR data is transaction."))
+            self.app.show_info(_("QR data is transaction."))
             return
         # show error
-        self.show_error(_("Unable to decode QR data"))
+        self.app.show_error(_("Unable to decode QR data"))
 
     def do_send(self):
         from electrum.bitcoin import is_p2pkh, is_hash160, b58_address_to_hash160, bh2u, TYPE_SCRIPT

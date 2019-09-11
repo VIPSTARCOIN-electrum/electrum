@@ -128,7 +128,7 @@ class AddTokenDialog(Factory.Popup):
             self.app.show_info(_("Clipboard is empty"))
             return
         if is_address(data) or data.startswith('vipstarcoin:'):
-            self.show_info(_("QR data is bitcoin URI."))
+            self.app.show_info(_("QR data is bitcoin URI."))
             return
         self.set_URI(data)
 
@@ -152,9 +152,9 @@ class AddTokenDialog(Factory.Popup):
         from electrum.bitcoin import base_decode, is_address
         data = data.strip()
         if is_address(data) or data.startswith('vipstarcoin:'):
-            self.show_info(_("QR data is bitcoin URI."))
+            self.app.show_info(_("QR data is bitcoin URI."))
             return
-        if search_token(data) or data.startswith('vipstoken:'):
+        if self.search_token(data) or data.startswith('vipstoken:'):
             self.set_URI(data)
             return
         # try to decode transaction
@@ -167,7 +167,7 @@ class AddTokenDialog(Factory.Popup):
         except:
             tx = None
         if tx:
-            self.show_info(_("QR data is transaction."))
+            self.app.show_info(_("QR data is transaction."))
             return
         # show error
-        self.show_error(_("Unable to decode QR data"))
+        self.app.show_error(_("Unable to decode QR data"))
