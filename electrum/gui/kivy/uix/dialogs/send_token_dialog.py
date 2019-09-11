@@ -182,7 +182,7 @@ class SendTokenDialog(Factory.Popup):
         if not self.app.wallet:
             self.payment_request_queued = text
             return
-        if data.startswith('vipstarcoin:'):
+        if text.startswith('vipstarcoin:'):
             try:
                 bitcoin_uri = parse_URI(text)
             except InvalidBitcoinURI as e:
