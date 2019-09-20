@@ -897,6 +897,23 @@ def create_bip21_uri(addr, amount_sat: Optional[int], message: Optional[str],
     p = urllib.parse.ParseResult(scheme='vipstarcoin', netloc='', path=addr, params='', query='&'.join(query), fragment='')
     return str(urllib.parse.urlunparse(p))
 
+def create_vip1_uri(contract_addr, to_addr: Optional[str], amount_token: Optional[int], token_decimals: Optional[int], 
+                     *, extra_query_params: Optional[dict] = None) -> str:
+    if extra_query_params is None:
+        extra_query_params = {}
+    query = []
+    if to_addr:
+        query.append('to_addr=%s'%urllib.parse.quote(to_addr))
+    if amount_token:
+        query.append('amount=%s'%format_token_plain(amount_token, token_decimals))
+    for k, v in extra_query_params.items():
+        if not isinstance(k, str) or k != urllib.parse.quote(k):
+            raise Exception(f"illegal key for URI: {repr(k)}")
+        v = urllib.parse.quote(v)
+        query.append(f"{k}={v}")
+    p = urllib.parse.ParseResult(scheme='vipstoken', netloc='', path=contract_addr, params='', query='&'.join(query), fragment='')
+    return str(urllib.parse.urlunparse(p))
+
 
 # Python bug (http://bugs.python.org/issue1927) causes raw_input
 # to be redirected improperly between stdin/stderr on Unix systems
