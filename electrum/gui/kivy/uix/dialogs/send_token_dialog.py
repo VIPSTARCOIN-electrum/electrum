@@ -201,7 +201,7 @@ class SendTokenDialog(Factory.Popup):
         from electrum.bitcoin import base_decode, is_p2pkh, is_address
         data = data.strip()
         if is_p2pkh(data):
-            uri = "vipstoken:{}?send_to={}".format(self.contract_addr, data)
+            uri = "vipstoken:{}?to_addr={}".format(self.contract_addr, data)
             self.set_URI(uri)
             return
         if is_address(data):
