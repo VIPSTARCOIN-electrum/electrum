@@ -448,7 +448,7 @@ class TokensScreen(CScreen):
     def __init__(self, **kwargs):
         self.ra_dialog = None
         super(TokensScreen, self).__init__(**kwargs)
-        self.menu_actions = [ ('Send Token', self.send_token), ('Token Info', self.show_token)]
+        self.menu_actions = [ ('Send Token', self.send_token), ('Receive Token', self.receive_token), ('Token Info', self.show_token)]
 
     def token_enabled(self):
         from electrum import bitcoin, constants
@@ -463,9 +463,13 @@ class TokensScreen(CScreen):
         token = obj.token
         self.app.send_token_dialog(token)
 
+    def receive_token(self, obj):
+        token = obj.token
+        self.app.receive_token_dialog(token)
+
     def show_token(self, obj):
         token = obj.token
-        self.app.token_dialog(token)
+        self.app.view_token_dialog(token)
 
     def get_card(self, key):
         token = self.app.wallet.db.get_token(key)
