@@ -1,22 +1,11 @@
-from datetime import datetime
-from typing import NamedTuple, Callable
-
 from kivy.app import App
 from kivy.factory import Factory
-from kivy.properties import ObjectProperty
 from kivy.lang import Builder
 from kivy.clock import Clock
-from kivy.uix.label import Label
-from kivy.uix.dropdown import DropDown
 from kivy.uix.button import Button
 
 from .question import Question
 from electrum.gui.kivy.i18n import _
-
-from electrum.util import InvalidPassword
-from electrum.address_synchronizer import TX_HEIGHT_LOCAL
-from electrum.wallet import CannotBumpFee
-
 
 Builder.load_string('''
 

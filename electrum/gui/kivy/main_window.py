@@ -970,7 +970,7 @@ class ElectrumWindow(App):
         d = TokenTxDialog(self, token_tx, token, value, from_addr, to_addr)
         d.open()
 
-    def token_dialog(self, token):
+    def view_token_dialog(self, token):
         from .uix.dialogs.view_token_dialog import ViewTokenDialog
         d = ViewTokenDialog(self, token)
         d.open()
@@ -978,6 +978,11 @@ class ElectrumWindow(App):
     def send_token_dialog(self, token):
         from .uix.dialogs.send_token_dialog import SendTokenDialog
         d = SendTokenDialog(self, token)
+        d.open()
+
+    def receive_token_dialog(self, token):
+        from .uix.dialogs.receive_token_dialog import ReceiveTokenDialog
+        d = ReceiveTokenDialog(self, token)
         d.open()
 
     def add_token(self):
