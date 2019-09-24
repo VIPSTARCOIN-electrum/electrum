@@ -280,7 +280,6 @@ class SendTokenDialog(Factory.Popup):
             self.app.show_error(_("Insufficient funds"))
             return
         except Exception as e:
-            traceback.print_exc(file=sys.stdout)
             self.app.show_error(str(e))
             return
         fee = tx.get_fee()
