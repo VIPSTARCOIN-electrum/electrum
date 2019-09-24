@@ -57,7 +57,8 @@ class TokenBalanceList(MyTreeView):
         self.update_headers(headers)
         for key in sorted(self.parent.wallet.db.list_tokens()):
             token = self.parent.wallet.db.get_token(key)
-            balance_str = self.parent.format_token_amount(token.balance, token.decimals, is_diff=False, whitespaces=True)
+#            balance_str = self.parent.format_token_amount(token.balance, token.decimals, is_diff=False, whitespaces=True)
+            balance_str = '{}'.format(token.balance / (10 ** token.decimals))
             labels = [token.name, token.bind_addr, balance_str]
             item = [QStandardItem(e) for e in labels]
             item[self.Columns.NAME].setData(token.contract_addr, Qt.UserRole)
@@ -223,7 +224,11 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
         elif col == TokenHistoryColumns.TOKEN:
             return QVariant(token.name)
         elif col == TokenHistoryColumns.AMOUNT:
-            a_str = self.parent.format_token_amount(balance_str, token.decimals, is_diff=True, whitespaces=True)
+#            a_str = self.parent.format_token_amount(balance_str, token.decimals, is_diff=True, whitespaces=True)
+            if to_addr == bind_addr:
+                a_str = '+' + '{}'.format(tx_item['amount'] / 10 ** token.decimals)
+            else:
+                a_str = '-' + '{}'.format(tx_item['amount'] / 10 ** token.decimals)
             return QVariant(a_str)
         elif col == TokenHistoryColumns.TXID:
             return QVariant(tx_hash)
