@@ -118,6 +118,7 @@ class AddTokenDialog(Factory.Popup):
     def do_paste(self):
         from electrum.bitcoin import base_decode, is_address
         data = self.app._clipboard.paste()
+        data = data.strip()
         if not data:
             self.app.show_info(_("Clipboard is empty"))
             return
