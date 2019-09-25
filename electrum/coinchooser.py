@@ -88,65 +88,19 @@ class ScoredCandidate(NamedTuple):
     buckets: List[Bucket]
 
 
-def strip_unneeded(bkts, sufficient_funds, exception_addr=None) -> list:
-    '''
-    Remove buckets that are unnecessary in achieving the spend amount
-    exception_addr is the address that cannot be removed
-    '''
+def strip_unneeded(bkts, sufficient_funds):
+    '''Remove buckets that are unnecessary in achieving the spend amount'''
     if sufficient_funds([], bucket_value_sum=0):
         # none of the buckets are needed
         return []
     bkts = sorted(bkts, key=lambda bkt: bkt.value, reverse=True)
     bucket_value_sum = 0
-
-    # move the exception bucket to the top
-    if exception_addr:
-        for i in range(len(bkts)):
-            if bkts[i].desc == exception_addr:
-                exception_bucket = bkts[i]
-                del bkts[i]
-                bkts.insert(0, exception_bucket)
-                break
-
     for i in range(len(bkts)):
         bucket_value_sum += (bkts[i]).value
         if sufficient_funds(bkts[:i+1], bucket_value_sum=bucket_value_sum):
             return bkts[:i+1]
     raise Exception("keeping all buckets is still not enough")
 
-def strip_unneeded_utxo(bkts, sufficient_funds):
-    '''Remove utxos that are unnecessary in achieving the spend amount'''
-    assert len(bkts) == 1
-    bucket = bkts[0]
-    desc = bucket.desc
-    coins = []
-
-    for coin in bucket.coins:
-        coins.append(coin)
-        new_bucket = make_Bucket_VIPS(desc, coins)
-        if sufficient_funds([new_bucket], bucket_value_sum=new_bucket.value):
-            return [new_bucket, ]
-    return [bucket, ]
-
-def make_Bucket_VIPS(desc, coins):
-        witness = any(Transaction.is_segwit_input(coin, guess_for_address=True) for coin in coins)
-        # note that we're guessing whether the tx uses segwit based
-        # on this single bucket
-        weight = sum(Transaction.estimated_input_weight(coin, witness)
-                     for coin in coins)
-        value = sum(coin['value'] for coin in coins)
-        min_height = min(coin['height'] for coin in coins)
-        # the fee estimator is typically either a constant or a linear function,
-        # so the "function:" effective_value(bucket) will be homomorphic for addition
-        # i.e. effective_value(b1) + effective_value(b2) = effective_value(b1 + b2)
-        effective_value = value
-        return Bucket(desc=desc,
-                      weight=weight,
-                      value=value,
-                      effective_value=effective_value,
-                      coins=coins,
-                      min_height=min_height,
-                      witness=witness)
 
 class CoinChooserBase(Logger):
 
@@ -196,9 +150,7 @@ class CoinChooserBase(Logger):
         return list(map(make_Bucket, buckets.keys(), buckets.values()))
 
     def penalty_func(self, base_tx, *, tx_from_buckets) -> Callable[[List[Bucket]], ScoredCandidate]:
-        def penalty(candidate):
-            return 0
-        return penalty
+        raise NotImplementedError
 
     def _change_amounts(self, tx, count, fee_estimator_numchange) -> List[int]:
         # Break change up if bigger than max_change
@@ -371,38 +323,20 @@ class CoinChooserBase(Logger):
         all_buckets = list(filter(lambda b: b.effective_value > 0, all_buckets))
         # Choose a subset of the buckets
         scored_candidate = self.choose_buckets(all_buckets, sufficient_funds,
-                                               self.penalty_func(base_tx, tx_from_buckets=tx_from_buckets), sender)
+                                               self.penalty_func(base_tx, tx_from_buckets=tx_from_buckets))
+        tx = scored_candidate.tx
 
-        base_tx.add_inputs([coin for b in scored_candidate for coin in b.coins])
-        tx_weight = self._get_tx_weight(scored_candidate, base_weight=base_weight)
+        self.logger.info(f"using {len(tx.inputs())} inputs")
+        self.logger.info(f"using buckets: {[bucket.desc for bucket in scored_candidate.buckets]}")
 
-        # change is sent back to sending address unless specified
-        if not change_addrs:
-            change_addrs = [tx.inputs()[0]['address']]
-            # note: this is not necessarily the final "first input address"
-            # because the inputs had not been sorted at this point
-            assert is_address(change_addrs[0])
+        return tx
 
-        # This takes a count of change outputs and returns a tx fee
-        output_weight = 4 * Transaction.estimated_output_size(change_addrs[0])
-        fee = lambda count: fee_estimator_w(tx_weight + count * output_weight)
-        change = self._change_outputs(base_tx, change_addrs, fee, dust_threshold)
-        base_tx.add_outputs(change)
-
-
-        self.logger.info(f"using {len(base_tx.inputs())} inputs")
-        self.logger.info(f"using buckets: {[bucket.desc for bucket in scored_candidate]}")
-
-        return base_tx
-
-    def choose_buckets(self, buckets, sufficient_funds, penalty_func, sender=None):
+    def choose_buckets(self, buckets, sufficient_funds,
+                       penalty_func: Callable[[List[Bucket]], ScoredCandidate], sender=None) -> ScoredCandidate:
         raise NotImplemented('To be subclassed')
 
 
 class CoinChooserRandom(CoinChooserBase):
-
-    def keys(self, coins):
-        return [coin['address'] for coin in coins]
 
     def bucket_candidates_any(self, buckets, sufficient_funds):
         '''Returns a list of bucket sets.'''
@@ -433,8 +367,7 @@ class CoinChooserRandom(CoinChooserBase):
                     candidates.add(tuple(sorted(permutation[:count + 1])))
                     break
             else:
-                # FIXME this assumes that the effective value of any bkt is >= 0
-                # we should make sure not to choose buckets with <= 0 eff. val.
+                # note: this assumes that the effective value of any bkt is >= 0
                 raise NotEnoughFunds()
 
         candidates = [[buckets[n] for n in c] for c in candidates]
@@ -480,10 +413,11 @@ class CoinChooserRandom(CoinChooserBase):
 
     def choose_buckets(self, buckets, sufficient_funds, penalty_func, sender=None):
         candidates = self.bucket_candidates_prefer_confirmed(buckets, sufficient_funds)
-        penalties = [penalty_func(cand) for cand in candidates]
-        winner = candidates[penalties.index(min(penalties))]
+        scored_candidates = [penalty_func(cand) for cand in candidates]
+        winner = min(scored_candidates, key=lambda x: x.penalty)
         self.logger.info(f"Total number of buckets: {len(buckets)}")
-        self.logger.info(f"Winning penalty: {min(penalties)}")
+        self.logger.info(f"Num candidates considered: {len(candidates)}. "
+                         f"Winning penalty: {winner.penalty}")
         return winner
 
 
@@ -504,60 +438,43 @@ class CoinChooserPrivacy(CoinChooserRandom):
     def penalty_func(self, base_tx, *, tx_from_buckets):
         min_change = min(o.value for o in base_tx.outputs()) * 0.75
         max_change = max(o.value for o in base_tx.outputs()) * 1.33
-        spent_amount = sum(o.value for o in base_tx.outputs())
 
-        def penalty(buckets):
+        def penalty(buckets) -> ScoredCandidate:
+            # Penalize using many buckets (~inputs)
             badness = len(buckets) - 1
-            total_input = sum(bucket.value for bucket in buckets)
-            # FIXME "change" here also includes fees
-            change = float(total_input - spent_amount)
+            tx, change_outputs = tx_from_buckets(buckets)
+            change = sum(o.value for o in change_outputs)
             # Penalize change not roughly in output range
-            if change < min_change:
+            if change == 0:
+                pass  # no change is great!
+            elif change < min_change:
                 badness += (min_change - change) / (min_change + 10000)
+                # Penalize really small change; under 1 mBTC ~= using 1 more input
+                if change < COIN / 1000:
+                    badness += 1
             elif change > max_change:
                 badness += (change - max_change) / (max_change + 10000)
                 # Penalize large change; 5 BTC excess ~= using 1 more input
                 badness += change / (COIN * 5)
-            return badness
+            return ScoredCandidate(badness, tx, buckets)
 
         return penalty
 
 
-class CoinChooserVIPSTARCOIN(CoinChooserBase):
-    def keys(self, coins):
-        return [coin['address'] for coin in coins]
+class CoinChooserVIPSTARCOIN(CoinChooserPrivacy):
 
-    def choose_buckets(self, buckets, sufficient_funds, penalty_func, sender=None):
-        '''Spend the oldest buckets first.'''
-        # Unconfirmed coins are young, not old
-        adj_height = lambda height: 99999999 if height <= 0 else height
-        buckets.sort(key=lambda b: max(adj_height(coin['height'])
-                                       for coin in b.coins))
-        selected = []
-        bucket_value_sum = 0
-
-        if sender:
-            # put sender bucket to selected first
-            for i in range(len(buckets)):
-                bucket = buckets[i]
-                if bucket.desc == sender:
-                    del buckets[i]
-                    selected.append(bucket)
-                    bucket_value_sum += bucket.value
-                    # check if it's already enough
-                    if sufficient_funds(selected, bucket_value_sum=bucket_value_sum):
-                        return strip_unneeded_utxo(selected, sufficient_funds)
+    def make_tx(self, coins, inputs: list, outputs, change_addrs, fee_estimator_vb,
+                dust_threshold, sender=None):
+        if sender is not None:
+            found = False
+            for coin in coins:
+                if coin.get('address', '') == sender:
+                    inputs.insert(0, coin)
+                    found = True
                     break
-            if len(selected) == 0:
+            if not found:
                 raise Exception(_('Sender address has no UTXO, you must to send 0.2 VIPS or more to Sender address.'))
-
-        for bucket in buckets:
-            selected.append(bucket)
-            bucket_value_sum += bucket.value
-            if sufficient_funds(selected, bucket_value_sum=bucket_value_sum):
-                return strip_unneeded(selected, sufficient_funds, sender)
-        else:
-            raise NotEnoughFunds()
+        return super().make_tx(coins, inputs, outputs, change_addrs, fee_estimator_vb, dust_threshold, sender)
 
 
 COIN_CHOOSERS = {
