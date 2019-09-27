@@ -39,6 +39,7 @@ Builder.load_string('''
                     pos_hint: {'center_y': .5}
                 BlueButton:
                     text: popup.name
+                    shorten: True
             CardSeparator:
                 opacity: int(not root.is_pr)
                 color: blue_bottom.foreground_color
@@ -53,6 +54,7 @@ Builder.load_string('''
                     pos_hint: {'center_y': .5}
                 BlueButton:
                     text: popup.to_addr if popup.to_addr else _('Send to address')
+                    shorten: True
                     on_release: Clock.schedule_once(lambda dt: app.show_info(_('Copy and paste the recipient address using the Paste button, or use the camera to scan a QR code.')))
             CardSeparator:
                 opacity: int(not root.is_pr)
@@ -69,6 +71,7 @@ Builder.load_string('''
                     pos_hint: {'center_y': .5}
                 BlueButton:
                     text: popup.amount if popup.amount else _('Amount')
+                    shorten: True
                     on_release: Clock.schedule_once(lambda dt: app.token_amount_dialog(popup, root.symbol, root.max_amount, True))
             CardSeparator:
                 opacity: int(not root.is_pr)
@@ -85,6 +88,7 @@ Builder.load_string('''
                     pos_hint: {'center_y': .5}
                 BlueButton:
                     text: _('gas limit:') + popup.gas_limit
+                    shorten: True
             CardSeparator:
                 opacity: int(not root.is_pr)
                 color: blue_bottom.foreground_color
@@ -100,6 +104,7 @@ Builder.load_string('''
                     pos_hint: {'center_y': .5}
                 BlueButton:
                     text: _('gas price:') + popup.gas_price
+                    shorten: True
         BoxLayout:
             size_hint: 1, None
             height: '48dp'
@@ -154,6 +159,7 @@ class SendTokenDialog(Factory.Popup):
     def do_paste(self):
         from electrum.bitcoin import is_p2pkh
         data = self.app._clipboard.paste()
+        data = data.strip()
         if not data:
             self.app.show_info(_("Clipboard is empty"))
             return

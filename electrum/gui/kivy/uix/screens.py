@@ -244,6 +244,7 @@ class SendScreen(CScreen):
 
     def do_paste(self):
         data = self.app._clipboard.paste()
+        data = data.strip()
         if not data:
             self.app.show_info(_("Clipboard is empty"))
             return

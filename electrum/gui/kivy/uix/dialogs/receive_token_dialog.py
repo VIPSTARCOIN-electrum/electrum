@@ -56,6 +56,7 @@ Builder.load_string('''
                     size: '22dp', '22dp'
                     pos_hint: {'center_y': .5}
                 BlueButton:
+                    shorten: True
                     text: popup.name
             CardSeparator:
                 opacity: int(not root.is_pr)
@@ -70,6 +71,7 @@ Builder.load_string('''
                     size: '22dp', '22dp'
                     pos_hint: {'center_y': .5}
                 BlueButton:
+                    shorten: True
                     text: popup.bind_addr
             CardSeparator:
                 opacity: int(not root.is_pr)
@@ -86,6 +88,7 @@ Builder.load_string('''
                     pos_hint: {'center_y': .5}
                 BlueButton:
                     text: popup.amount if popup.amount else _('Amount')
+                    shorten: True
                     on_release: Clock.schedule_once(lambda dt: app.token_amount_dialog(popup, root.symbol, 0, False))
         BoxLayout:
             size_hint: 1, None
