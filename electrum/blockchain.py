@@ -672,15 +672,11 @@ class Blockchain(Logger):
         ActualTimespan = min(ActualTimespan, ActualTimespanMax)
 
         bnNew = self.bits_to_target(last.get('bits'))
-        print("1", self.target_to_bits(bnNew))
         bnNew *= ActualTimespan;
-        print("2",self.target_to_bits(bnNew))
         bnNew //= PowTargetTimespan;
-        print("3", self.target_to_bits(bnNew), height)
 
         if bnNew <= 0 or bnNew > targetLimit:
             bnNew = targetLimit
-            print("4", self.target_to_bits(bnNew))
 
         return bnNew
 
