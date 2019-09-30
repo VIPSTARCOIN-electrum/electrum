@@ -260,7 +260,9 @@ class SendTokenDialog(Factory.Popup):
         except:
             self.app.show_error(_('Invalid amount') + ':\n' + self.screen.amount)
             return
-        print(amount)
+        if self.balance < amount:
+            self.app.show_error(_('token not enough'))
+            return
         datahex = 'a9059cbb{}{:064x}'.format(hash160.zfill(64), amount)
         tx_desc = _('Pay out {} {}').format(amount / (10 ** self.decimals), self.symbol)
         gas_limit = int(self.gas_limit)
