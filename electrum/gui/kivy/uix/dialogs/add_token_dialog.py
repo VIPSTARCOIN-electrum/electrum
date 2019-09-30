@@ -77,11 +77,19 @@ class AddTokenDialog(Factory.Popup):
         self.contract_addr = ''
 
     def address_select_dialog(self, item, dt):
+        shorten_addresses = []
+        for address in self.addresses:
+            shorten_address = ''
+            shorten_address = address[0:7] + '.....' + address[-7:]
+            shorten_addresses.append(shorten_address)
+        address_number = self.addresses.index(self.my_address)
         if self._address_select_dialog is None:
             def cb(addr):
-                item.my_addr = addr
-                self.my_address = addr
-            self._address_select_dialog = ChoiceDialog(_('My Address'), self.addresses, self.my_address, cb)
+                return_number = shorten_addresses.index(addr)
+                my_address = self.addresses[return_number]
+                item.my_addr = my_address
+                self.my_address = my_address
+            self._address_select_dialog = ChoiceDialog(_('My Address'), shorten_addresses, shorten_addresses[address_number], cb)
         self._address_select_dialog.open()
 
     def add_token(self):
