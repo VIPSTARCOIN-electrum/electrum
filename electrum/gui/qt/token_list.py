@@ -35,8 +35,9 @@ class TokenBalanceList(MyTreeView):
         NAME = 0
         BIND_ADDRESS = 1
         BALANCE = 2
+        SYMBOL = 3
 
-    filter_columns = [Columns.NAME, Columns.BIND_ADDRESS, Columns.BALANCE]
+    filter_columns = [Columns.NAME, Columns.BIND_ADDRESS, Columns.BALANCE, Columns.SYMBOL]
 
     def __init__(self, parent):
         super().__init__(parent, self.create_menu, stretch_column=self.Columns.BIND_ADDRESS)
@@ -53,13 +54,14 @@ class TokenBalanceList(MyTreeView):
             self.Columns.NAME: _('Name'),
             self.Columns.BIND_ADDRESS: _('Bind Address'),
             self.Columns.BALANCE: _('Balance'),
+            self.Columns.SYMBOL: _('Symbol'),
         }
         self.update_headers(headers)
         for key in sorted(self.parent.wallet.db.list_tokens()):
             token = self.parent.wallet.db.get_token(key)
 #            balance_str = self.parent.format_token_amount(token.balance, token.decimals, is_diff=False, whitespaces=True)
             balance_str = '{}'.format(token.balance / (10 ** token.decimals))
-            labels = [token.name, token.bind_addr, balance_str]
+            labels = [token.name, token.bind_addr, balance_str, token.symbol]
             item = [QStandardItem(e) for e in labels]
             item[self.Columns.NAME].setData(token.contract_addr, Qt.UserRole)
             item[self.Columns.NAME].setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -133,9 +135,10 @@ class TokenHistoryColumns(IntEnum):
         BIND_ADDRESS = 2
         TOKEN = 3
         AMOUNT = 4
-        TXID = 5
-        TO_ADDR = 6
-        FROM_ADDR = 7
+        SYMBOL = 5
+        TXID = 6
+        TO_ADDR = 7
+        FROM_ADDR = 8
 
 class TokenHistoryModel(QAbstractItemModel, Logger):
 
@@ -196,6 +199,7 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
                 TokenHistoryColumns.BIND_ADDRESS: bind_addr,
                 TokenHistoryColumns.TOKEN: token.name,
                 TokenHistoryColumns.AMOUNT: balance_str,
+                TokenHistoryColumns.SYMBOL: token.symbol,
                 TokenHistoryColumns.TXID: tx_hash,
                 TokenHistoryColumns.TO_ADDR: tx_item['to_addr'],
                 TokenHistoryColumns.FROM_ADDR: tx_item['from_addr'],
@@ -206,13 +210,13 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
                 return QVariant(read_QIcon(TX_ICONS[status]))
             elif col == TokenHistoryColumns.STATUS_ICON and role == Qt.ToolTipRole:
                 return QVariant(str(conf) + _(" confirmation" + ("s" if conf != 1 else "")))
-            elif col > TokenHistoryColumns.TOKEN and role == Qt.TextAlignmentRole:
+            elif col > TokenHistoryColumns.TOKEN and col < TokenHistoryColumns.SYMBOL and role == Qt.TextAlignmentRole:
                 return QVariant(Qt.AlignRight | Qt.AlignVCenter)
             elif col != TokenHistoryColumns.DATE and role == Qt.FontRole:
                 monospace_font = QFont(MONOSPACE_FONT)
                 return QVariant(monospace_font)
 
-            elif col in (TokenHistoryColumns.TOKEN, TokenHistoryColumns.AMOUNT) \
+            elif col in (TokenHistoryColumns.TOKEN, TokenHistoryColumns.AMOUNT, TokenHistoryColumns.SYMBOL) \
                     and role == Qt.ForegroundRole and from_addr == bind_addr:
                 red_brush = QBrush(QColor("#BC1E1E"))
                 return QVariant(red_brush)
@@ -230,6 +234,8 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
             else:
                 a_str = '-' + '{}'.format(tx_item['amount'] / 10 ** token.decimals)
             return QVariant(a_str)
+        elif col == TokenHistoryColumns.SYMBOL:
+            return QVariant(token.symbol)
         elif col == TokenHistoryColumns.TXID:
             return QVariant(tx_hash)
         elif col == TokenHistoryColumns.TO_ADDR:
@@ -324,6 +330,7 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
             TokenHistoryColumns.BIND_ADDRESS: _('Bind Address'),
             TokenHistoryColumns.TOKEN: _('Token'),
             TokenHistoryColumns.AMOUNT: _('Amount'),
+            TokenHistoryColumns.SYMBOL: _('Symbol'),
             TokenHistoryColumns.TXID: 'TXID',
             TokenHistoryColumns.TO_ADDR: 'TO_ADDR',
             TokenHistoryColumns.FROM_ADDR: 'FROM_ADDR',
@@ -346,7 +353,8 @@ class TokenHistoryList(MyTreeView):
     filter_columns = [TokenHistoryColumns.DATE,
                       TokenHistoryColumns.BIND_ADDRESS,
                       TokenHistoryColumns.TOKEN,
-                      TokenHistoryColumns.AMOUNT]
+                      TokenHistoryColumns.AMOUNT,
+                      TokenHistoryColumns.SYMBOL]
 
     def tx_item_from_proxy_row(self, proxy_row):
         thm_idx = self.model().mapToSource(self.model().index(proxy_row, 0))
