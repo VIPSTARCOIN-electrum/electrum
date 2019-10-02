@@ -39,6 +39,7 @@ import builtins
 import json
 import time
 from typing import NamedTuple, Optional
+from struct import Struct
 import ssl
 import ipaddress
 
@@ -67,11 +68,17 @@ def inv_dict(d):
 ca_path = certifi.where()
 
 
-base_units = {'BTC':8, 'mBTC':5, 'bits':2, 'sat':0}
+base_units = {'VIPS':8, 'mVIPS':5, 'uVIPS':2, 'boon':0}
 base_units_inverse = inv_dict(base_units)
-base_units_list = ['BTC', 'mBTC', 'bits', 'sat']  # list(dict) does not guarantee order
+base_units_list = ['VIPS', 'mVIPS', 'uVIPS', 'boon']  # list(dict) does not guarantee order
 
-DECIMAL_POINT_DEFAULT = 5  # mBTC
+unpack_int32_from = Struct('<i').unpack_from
+unpack_int64_from = Struct('<q').unpack_from
+unpack_uint16_from = Struct('<H').unpack_from
+unpack_uint32_from = Struct('<I').unpack_from
+unpack_uint64_from = Struct('<Q').unpack_from
+
+DECIMAL_POINT_DEFAULT = 8  # VIPS
 
 # types of payment requests
 PR_TYPE_ONCHAIN = 0
@@ -117,7 +124,7 @@ class UnknownBaseUnit(Exception): pass
 
 
 def decimal_point_to_base_unit_name(dp: int) -> str:
-    # e.g. 8 -> "BTC"
+    # e.g. 8 -> "VIPS"
     try:
         return base_units_inverse[dp]
     except KeyError:
@@ -125,7 +132,7 @@ def decimal_point_to_base_unit_name(dp: int) -> str:
 
 
 def base_unit_name_to_decimal_point(unit_name: str) -> int:
-    # e.g. "BTC" -> 8
+    # e.g. "VIPS" -> 8
     try:
         return base_units[unit_name]
     except KeyError:
@@ -522,11 +529,11 @@ def user_dir():
     if 'ANDROID_DATA' in os.environ:
         return android_data_dir()
     elif os.name == 'posix':
-        return os.path.join(os.environ["HOME"], ".electrum")
+        return os.path.join(os.environ["HOME"], ".electrum-vips")
     elif "APPDATA" in os.environ:
-        return os.path.join(os.environ["APPDATA"], "Electrum")
+        return os.path.join(os.environ["APPDATA"], "Electrum-VIPS")
     elif "LOCALAPPDATA" in os.environ:
-        return os.path.join(os.environ["LOCALAPPDATA"], "Electrum")
+        return os.path.join(os.environ["LOCALAPPDATA"], "Electrum-VIPS")
     else:
         #raise Exception("No home directory found in environment variables.")
         return
@@ -584,6 +591,12 @@ def format_satoshis_plain(x, decimal_point = 8):
     scale_factor = pow(10, decimal_point)
     return "{:.8f}".format(Decimal(x) / scale_factor).rstrip('0').rstrip('.')
 
+def format_token_plain(x, decimal_point = 0):
+    """Display a satoshi amount scaled.  Always uses a '.' as a decimal
+    point and has no thousands separator"""
+    scale_factor = pow(10, decimal_point)
+    return "{:.8f}".format(Decimal(x) / scale_factor).rstrip('0').rstrip('.')
+
 
 DECIMAL_POINT = localeconv()['decimal_point']  # type: str
 
@@ -617,6 +630,32 @@ def format_satoshis(x, num_zeros=0, decimal_point=8, precision=None, is_diff=Fal
         result = " " * (15 - len(result)) + result
     return result
 
+def format_tokens(x, num_zeros=0, decimal_point=0, precision=None, is_diff=False, whitespaces=False):
+    if x is None:
+        return 'unknown'
+    if precision is None:
+        precision = decimal_point
+    # format string
+    decimal_format = "." + str(precision) if precision > 0 else ""
+    if is_diff:
+        decimal_format = '+' + decimal_format
+    # initial result
+    scale_factor = pow(10, decimal_point)
+    if not isinstance(x, Decimal):
+        x = Decimal(x).quantize(Decimal('1E-8'))
+    result = ("{:" + decimal_format + "f}").format(x / scale_factor)
+    if "." not in result: result += "."
+    result = result.rstrip('0')
+    # extra decimal places
+    integer_part, fract_part = result.split(".")
+    if len(fract_part) < num_zeros:
+        fract_part += "0" * (num_zeros - len(fract_part))
+    result = integer_part + DECIMAL_POINT + fract_part
+    # leading/trailing whitespaces
+    if whitespaces:
+        result += " " * (decimal_point - len(fract_part))
+        result = " " * (15 - len(result)) + result
+    return result
 
 FEERATE_PRECISION = 1  # num fractional decimal places for sat/byte fee rates
 _feerate_quanta = Decimal(10) ** (-FEERATE_PRECISION)
@@ -689,53 +728,15 @@ def time_difference(distance_in_time, include_seconds):
         return "over %d years" % (round(distance_in_minutes / 525600))
 
 mainnet_block_explorers = {
-    'Bitupper Explorer': ('https://bitupper.com/en/explorer/bitcoin/',
-                        {'tx': 'transactions/', 'addr': 'addresses/'}),
-    'Bitflyer.jp': ('https://chainflyer.bitflyer.jp/',
-                        {'tx': 'Transaction/', 'addr': 'Address/'}),
-    'Blockchain.info': ('https://blockchain.com/btc/',
-                        {'tx': 'tx/', 'addr': 'address/'}),
-    'blockchainbdgpzk.onion': ('https://blockchainbdgpzk.onion/',
-                        {'tx': 'tx/', 'addr': 'address/'}),
-    'Blockstream.info': ('https://blockstream.info/',
-                        {'tx': 'tx/', 'addr': 'address/'}),
-    'Bitaps.com': ('https://btc.bitaps.com/',
-                        {'tx': '', 'addr': ''}),
-    'BTC.com': ('https://btc.com/',
-                        {'tx': '', 'addr': ''}),
-    'Chain.so': ('https://www.chain.so/',
-                        {'tx': 'tx/BTC/', 'addr': 'address/BTC/'}),
-    'Insight.is': ('https://insight.bitpay.com/',
-                        {'tx': 'tx/', 'addr': 'address/'}),
-    'TradeBlock.com': ('https://tradeblock.com/blockchain/',
-                        {'tx': 'tx/', 'addr': 'address/'}),
-    'BlockCypher.com': ('https://live.blockcypher.com/btc/',
-                        {'tx': 'tx/', 'addr': 'address/'}),
-    'Blockchair.com': ('https://blockchair.com/bitcoin/',
-                        {'tx': 'transaction/', 'addr': 'address/'}),
-    'blockonomics.co': ('https://www.blockonomics.co/',
-                        {'tx': 'api/tx?txid=', 'addr': '#/search?q='}),
-    'OXT.me': ('https://oxt.me/',
-                        {'tx': 'transaction/', 'addr': 'address/'}),
-    'smartbit.com.au': ('https://www.smartbit.com.au/',
-                        {'tx': 'tx/', 'addr': 'address/'}),
-    'system default': ('blockchain:/',
-                        {'tx': 'tx/', 'addr': 'address/'}),
+    'explorer.vipstarcoin.jp': ('http://explorer.vipstarcoin.jp/',
+                       {'tx': 'tx/', 'addr': 'address/'}),
+    'vips.blockbook.japanesecoin-pool.work': ('https://vips.blockbook.japanesecoin-pool.work/',
+                       {'tx': 'tx/', 'addr': 'address/'}),
+    'insight.vipstarco.in': ('https://insight.vipstarco.in/',
+                       {'tx': 'tx/', 'addr': 'address/'}),
 }
 
 testnet_block_explorers = {
-    'Bitaps.com': ('https://tbtc.bitaps.com/',
-                       {'tx': '', 'addr': ''}),
-    'BlockCypher.com': ('https://live.blockcypher.com/btc-testnet/',
-                       {'tx': 'tx/', 'addr': 'address/'}),
-    'Blockchain.info': ('https://www.blockchain.com/btctest/',
-                       {'tx': 'tx/', 'addr': 'address/'}),
-    'Blockstream.info': ('https://blockstream.info/testnet/',
-                        {'tx': 'tx/', 'addr': 'address/'}),
-    'smartbit.com.au': ('https://testnet.smartbit.com.au/',
-                       {'tx': 'tx/', 'addr': 'address/'}),
-    'system default': ('blockchain://000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943/',
-                       {'tx': 'tx/', 'addr': 'address/'}),
 }
 
 def block_explorer_info():
@@ -744,7 +745,7 @@ def block_explorer_info():
 
 def block_explorer(config: 'SimpleConfig') -> str:
     from . import constants
-    default_ = 'Blockstream.info'
+    default_ = 'insight.vipstarco.in'
     be_key = config.get('block_explorer', default_)
     be = block_explorer_info().get(be_key)
     return be_key if be is not None else default_
@@ -752,15 +753,29 @@ def block_explorer(config: 'SimpleConfig') -> str:
 def block_explorer_tuple(config: 'SimpleConfig') -> Optional[Tuple[str, dict]]:
     return block_explorer_info().get(block_explorer(config))
 
-def block_explorer_URL(config: 'SimpleConfig', kind: str, item: str) -> Optional[str]:
+def block_explorer_URL(config: 'SimpleConfig', params) -> Optional[str]:
+    """
+    :param config:
+    :type params: dict
+    :return: str
+    """
     be_tuple = block_explorer_tuple(config)
     if not be_tuple:
         return
-    explorer_url, explorer_dict = be_tuple
-    kind_str = explorer_dict.get(kind)
-    if kind_str is None:
-        return
-    url_parts = [explorer_url, kind_str, item]
+
+    token = params.get('token')
+    addr = params.get('addr')
+    if token:
+        if 'insight.vipstarco.in' in be_tuple[0]:
+            return "{}token/{}?a={}".format(be_tuple[0], token, addr)
+
+    url_parts = [be_tuple[0], ]
+    for k, v in params.items():
+        kind_str = be_tuple[1].get(k)
+        if not kind_str:
+            continue
+        url_parts.append(kind_str)
+        url_parts.append(v)
     return ''.join(url_parts)
 
 # URL decode
@@ -769,6 +784,7 @@ def block_explorer_URL(config: 'SimpleConfig', kind: str, item: str) -> Optional
 
 class InvalidBitcoinURI(Exception): pass
 
+class InvalidTokenURI(Exception): pass
 
 def parse_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
     """Raises InvalidBitcoinURI on malformed URI."""
@@ -780,12 +796,12 @@ def parse_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
 
     if ':' not in uri:
         if not bitcoin.is_address(uri):
-            raise InvalidBitcoinURI("Not a bitcoin address")
+            raise InvalidBitcoinURI("Not a vipstarcoin address")
         return {'address': uri}
 
     u = urllib.parse.urlparse(uri)
-    if u.scheme != 'bitcoin':
-        raise InvalidBitcoinURI("Not a bitcoin URI")
+    if u.scheme != 'vipstarcoin':
+        raise InvalidBitcoinURI("Not a vipstarcoin URI")
     address = u.path
 
     # python for android fails to parse query
@@ -802,7 +818,7 @@ def parse_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
     out = {k: v[0] for k, v in pq.items()}
     if address:
         if not bitcoin.is_address(address):
-            raise InvalidBitcoinURI(f"Invalid bitcoin address: {address}")
+            raise InvalidBitcoinURI(f"Invalid vipstarcoin address: {address}")
         out['address'] = address
     if 'amount' in out:
         am = out['amount']
@@ -855,6 +871,53 @@ def parse_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
     return out
 
 
+def parse_token_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
+    """Raises InvalidTokenURI on malformed URI."""
+    from . import bitcoin
+    from .bitcoin import COIN
+
+    if not isinstance(uri, str):
+        raise InvalidTokenURI(f"expected string, not {repr(uri)}")
+
+    if ':' not in uri:
+        return {'contract_addr': uri}
+
+    u = urllib.parse.urlparse(uri)
+    if u.scheme != 'vipstoken':
+        raise InvalidTokenURI("Not a vipstoken URI")
+    address = u.path
+
+    # python for android fails to parse query
+    if address.find('?') > 0:
+        address, query = u.path.split('?')
+        pq = urllib.parse.parse_qs(query)
+    else:
+        pq = urllib.parse.parse_qs(u.query)
+
+    for k, v in pq.items():
+        if len(v) != 1:
+            raise InvalidTokenURI(f'Duplicate Key: {repr(k)}')
+
+    out = {k: v[0] for k, v in pq.items()}
+    if address:
+        out['contract_addr'] = address
+    if 'amount' in out:
+        am = out['amount']
+        try:
+            m = re.match(r'([0-9.]+)X([0-9])', am)
+            if m:
+                k = int(m.group(2)) - 8
+                amount = Decimal(m.group(1)) * pow(  Decimal(10) , k)
+            else:
+                amount = Decimal(am) * COIN
+            out['amount'] = int(amount)
+        except Exception as e:
+            raise InvalidTokenURI(f"failed to parse 'amount' field: {repr(e)}") from e
+    if 'to_addr' in out:
+        out['to_addr'] = out['to_addr']
+
+    return out
+
 def create_bip21_uri(addr, amount_sat: Optional[int], message: Optional[str],
                      *, extra_query_params: Optional[dict] = None) -> str:
     from . import bitcoin
@@ -872,7 +935,24 @@ def create_bip21_uri(addr, amount_sat: Optional[int], message: Optional[str],
             raise Exception(f"illegal key for URI: {repr(k)}")
         v = urllib.parse.quote(v)
         query.append(f"{k}={v}")
-    p = urllib.parse.ParseResult(scheme='bitcoin', netloc='', path=addr, params='', query='&'.join(query), fragment='')
+    p = urllib.parse.ParseResult(scheme='vipstarcoin', netloc='', path=addr, params='', query='&'.join(query), fragment='')
+    return str(urllib.parse.urlunparse(p))
+
+def create_vip1_uri(contract_addr, to_addr: Optional[str], amount_token: Optional[int], token_decimals: Optional[int], 
+                     *, extra_query_params: Optional[dict] = None) -> str:
+    if extra_query_params is None:
+        extra_query_params = {}
+    query = []
+    if to_addr:
+        query.append('to_addr=%s'%urllib.parse.quote(to_addr))
+    if amount_token:
+        query.append('amount=%s'%format_token_plain(amount_token, token_decimals))
+    for k, v in extra_query_params.items():
+        if not isinstance(k, str) or k != urllib.parse.quote(k):
+            raise Exception(f"illegal key for URI: {repr(k)}")
+        v = urllib.parse.quote(v)
+        query.append(f"{k}={v}")
+    p = urllib.parse.ParseResult(scheme='vipstoken', netloc='', path=contract_addr, params='', query='&'.join(query), fragment='')
     return str(urllib.parse.urlunparse(p))
 
 

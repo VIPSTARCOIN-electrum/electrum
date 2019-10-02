@@ -28,6 +28,7 @@ from typing import NamedTuple, List, Callable
 from decimal import Decimal
 
 from .bitcoin import sha256, COIN, TYPE_ADDRESS, is_address
+from .i18n import _
 from .transaction import Transaction, TxOutput
 from .util import NotEnoughFunds
 from .logging import Logger
@@ -261,7 +262,7 @@ class CoinChooserBase(Logger):
         return total_weight
 
     def make_tx(self, coins, inputs, outputs, change_addrs, fee_estimator_vb,
-                dust_threshold):
+                dust_threshold, sender=None):
         """Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
         the transaction) it is kept, otherwise none is sent and it is
@@ -331,7 +332,7 @@ class CoinChooserBase(Logger):
         return tx
 
     def choose_buckets(self, buckets, sufficient_funds,
-                       penalty_func: Callable[[List[Bucket]], ScoredCandidate]) -> ScoredCandidate:
+                       penalty_func: Callable[[List[Bucket]], ScoredCandidate], sender=None) -> ScoredCandidate:
         raise NotImplemented('To be subclassed')
 
 
@@ -410,7 +411,7 @@ class CoinChooserRandom(CoinChooserBase):
         candidates = [(already_selected_buckets + c) for c in candidates]
         return [strip_unneeded(c, sufficient_funds) for c in candidates]
 
-    def choose_buckets(self, buckets, sufficient_funds, penalty_func):
+    def choose_buckets(self, buckets, sufficient_funds, penalty_func, sender=None):
         candidates = self.bucket_candidates_prefer_confirmed(buckets, sufficient_funds)
         scored_candidates = [penalty_func(cand) for cand in candidates]
         winner = min(scored_candidates, key=lambda x: x.penalty)
@@ -458,6 +459,22 @@ class CoinChooserPrivacy(CoinChooserRandom):
             return ScoredCandidate(badness, tx, buckets)
 
         return penalty
+
+
+class CoinChooserVIPSTARCOIN(CoinChooserPrivacy):
+
+    def make_tx(self, coins, inputs: list, outputs, change_addrs, fee_estimator_vb,
+                dust_threshold, sender=None):
+        if sender is not None:
+            found = False
+            for coin in coins:
+                if coin.get('address', '') == sender:
+                    inputs.insert(0, coin)
+                    found = True
+                    break
+            if not found:
+                raise Exception(_('Sender address has no UTXO, you must to send 0.2 VIPS or more to Sender address.'))
+        return super().make_tx(coins, inputs, outputs, change_addrs, fee_estimator_vb, dust_threshold, sender)
 
 
 COIN_CHOOSERS = {

@@ -12,3 +12,7 @@ bitstring
 pycryptodomex>=3.7
 jsonrpcserver
 jsonrpcclient
+vips_hash
+vips_utils
+vips_abi
+pysha3

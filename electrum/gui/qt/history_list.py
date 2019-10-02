@@ -46,7 +46,7 @@ from electrum.util import (block_explorer_URL, profiler, TxMinedInfo,
                            Satoshis, format_time)
 from electrum.logging import get_logger, Logger
 
-from .util import (read_QIcon, MONOSPACE_FONT, Buttons, CancelButton, OkButton,
+from .util import (read_QIcon, TX_ICONS, MONOSPACE_FONT, Buttons, CancelButton, OkButton,
                    filename_field, MyTreeView, AcceptFileDragDrop, WindowModalDialog,
                    CloseButton, webopen)
 
@@ -63,20 +63,6 @@ try:
 except:
     _logger.info("could not import electrum.plot. This feature needs matplotlib to be installed.")
     plot_history = None
-
-# note: this list needs to be kept in sync with another in kivy
-TX_ICONS = [
-    "unconfirmed.png",
-    "warning.png",
-    "unconfirmed.png",
-    "offline_tx.png",
-    "clock1.png",
-    "clock2.png",
-    "clock3.png",
-    "clock4.png",
-    "clock5.png",
-    "confirmed.png",
-]
 
 class HistoryColumns(IntEnum):
     STATUS = 0
@@ -518,13 +504,13 @@ class HistoryList(MyTreeView, AcceptFileDragDrop):
         grid = QGridLayout()
         grid.addWidget(QLabel(_("Start")), 0, 0)
         grid.addWidget(QLabel(self.format_date(start_date)), 0, 1)
-        grid.addWidget(QLabel(str(h.get('fiat_start_value')) + '/BTC'), 0, 2)
+        grid.addWidget(QLabel(str(h.get('fiat_start_value')) + '/VIPS'), 0, 2)
         grid.addWidget(QLabel(_("Initial balance")), 1, 0)
         grid.addWidget(QLabel(format_amount(h['start_balance'])), 1, 1)
         grid.addWidget(QLabel(str(h.get('fiat_start_balance'))), 1, 2)
         grid.addWidget(QLabel(_("End")), 2, 0)
         grid.addWidget(QLabel(self.format_date(end_date)), 2, 1)
-        grid.addWidget(QLabel(str(h.get('fiat_end_value')) + '/BTC'), 2, 2)
+        grid.addWidget(QLabel(str(h.get('fiat_end_value')) + '/VIPS'), 2, 2)
         grid.addWidget(QLabel(_("Final balance")), 4, 0)
         grid.addWidget(QLabel(format_amount(h['end_balance'])), 4, 1)
         grid.addWidget(QLabel(str(h.get('fiat_end_balance'))), 4, 2)
@@ -605,7 +591,7 @@ class HistoryList(MyTreeView, AcceptFileDragDrop):
         tx = self.wallet.db.get_transaction(tx_hash)
         if not tx:
             return
-        tx_URL = block_explorer_URL(self.config, 'tx', tx_hash)
+        tx_URL = block_explorer_URL(self.config, {'tx': tx_hash})
         height = self.wallet.get_tx_height(tx_hash).height
         is_relevant, is_mine, v, fee = self.wallet.get_wallet_delta(tx)
         is_unconfirmed = height <= 0

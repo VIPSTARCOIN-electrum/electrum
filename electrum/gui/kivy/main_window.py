@@ -14,7 +14,7 @@ from electrum.storage import WalletStorage, StorageReadWriteError
 from electrum.wallet import Wallet, InternalAddressCorruption
 from electrum.util import profiler, InvalidPassword, send_exception_to_crash_reporter
 from electrum.plugin import run_hook
-from electrum.util import format_satoshis, format_satoshis_plain, format_fee_satoshis
+from electrum.util import format_satoshis, format_satoshis_plain, format_token_plain, format_fee_satoshis, format_tokens
 from electrum.util import PR_UNPAID, PR_PAID, PR_UNKNOWN, PR_EXPIRED
 from electrum import blockchain
 from electrum.network import Network, TxBroadcastError, BestEffortRequestFailed
@@ -69,6 +69,11 @@ Label.register('Roboto',
                'electrum/gui/kivy/data/fonts/Roboto.ttf',
                'electrum/gui/kivy/data/fonts/Roboto-Bold.ttf',
                'electrum/gui/kivy/data/fonts/Roboto-Bold.ttf')
+Label.register('JP',
+               'electrum/gui/kivy/data/fonts/GenShinGothic-P-Normal.ttf',
+               'electrum/gui/kivy/data/fonts/GenShinGothic-P-Normal.ttf',
+               'electrum/gui/kivy/data/fonts/GenShinGothic-P-Bold.ttf',
+               'electrum/gui/kivy/data/fonts/GenShinGothic-P-Bold.ttf')
 
 
 from electrum.util import (base_units, NoDynamicFeeEstimates, decimal_point_to_base_unit_name,
@@ -178,7 +183,7 @@ class ElectrumWindow(App):
 
     def on_new_intent(self, intent):
         data = intent.getDataString()
-        if intent.getScheme() == 'bitcoin':
+        if intent.getScheme() == 'vipstarcoin':
             self.set_URI(data)
         elif intent.getScheme() == 'lightning':
             self.set_ln_invoice(data)
@@ -191,6 +196,12 @@ class ElectrumWindow(App):
         if self.history_screen:
             self.history_screen.update()
 
+    def update_tokens(self, *dt):
+        if self.tokens_screen:
+            self.tokens_screen.update()
+        if self.token_history_screen:
+            self.token_history_screen.update()
+
     def on_quotes(self, d):
         Logger.info("on_quotes")
         self._trigger_update_status()
@@ -201,6 +212,10 @@ class ElectrumWindow(App):
         if self.wallet:
             self.wallet.clear_coin_price_cache()
         self._trigger_update_history()
+
+    def on_tokens(self, d):
+        Logger.info("on_tokens")
+        self._trigger_update_tokens()
 
     def on_fee_histogram(self, *args):
         self._trigger_update_history()
@@ -278,6 +293,16 @@ class ElectrumWindow(App):
         p = pow(10, self.decimal_point())
         return int(p * x)
 
+    def get_token_amount(self, amount_str, symbol, decimals):
+        a, u = amount_str.split()
+        assert u == symbol
+        try:
+            x = Decimal(a)
+        except:
+            return None
+        p = pow(10, decimals)
+        return int(p * x)
+
 
     _orientation = OptionProperty('landscape',
                                  options=('landscape', 'portrait'))
@@ -350,6 +375,7 @@ class ElectrumWindow(App):
         self._trigger_update_status = Clock.create_trigger(self.update_status, .5)
         self._trigger_update_history = Clock.create_trigger(self.update_history, .5)
         self._trigger_update_interfaces = Clock.create_trigger(self.update_interfaces, .5)
+        self._trigger_update_tokens = Clock.create_trigger(self.update_tokens, .5)
 
         self._periodic_update_status_during_sync = Clock.schedule_interval(self.update_wallet_synchronizing_progress, .5)
 
@@ -386,7 +412,7 @@ class ElectrumWindow(App):
         if is_address(data):
             self.set_URI(data)
             return
-        if data.startswith('bitcoin:'):
+        if data.startswith('vipstarcoin:'):
             self.set_URI(data)
             return
         if data.startswith('ln'):
@@ -414,7 +440,7 @@ class ElectrumWindow(App):
 
     @profiler
     def update_tabs(self):
-        for tab in ['invoices', 'send', 'history', 'receive', 'address']:
+        for tab in ['invoices', 'send', 'history', 'receive', 'address', 'tokens', 'token_history']:
             self.update_tab(tab)
 
     def switch_to(self, name):
@@ -539,7 +565,7 @@ class ElectrumWindow(App):
         self.fiat_unit = self.fx.ccy if self.fx.is_enabled() else ''
         # default tab
         self.switch_to('history')
-        # bind intent for bitcoin: URI scheme
+        # bind intent for vipstarcoin: URI scheme
         if platform == 'android':
             from android import activity
             from jnius import autoclass
@@ -556,6 +582,7 @@ class ElectrumWindow(App):
             self.network.register_callback(self.on_fee_histogram, ['fee_histogram'])
             self.network.register_callback(self.on_quotes, ['on_quotes'])
             self.network.register_callback(self.on_history, ['on_history'])
+            self.network.register_callback(self.on_tokens, ['on_tokens'])
             self.network.register_callback(self.on_payment_received, ['payment_received'])
             self.network.register_callback(self.on_channels, ['channels'])
             self.network.register_callback(self.on_channel, ['channel'])
@@ -743,6 +770,8 @@ class ElectrumWindow(App):
         self.receive_screen = None
         self.requests_screen = None
         self.address_screen = None
+        self.tokens_screen = None
+        self.token_history_screen = None
         self.icon = "electrum/gui/icons/electrum.png"
         self.tabs = self.root.ids['tabs']
 
@@ -869,6 +898,12 @@ class ElectrumWindow(App):
     def format_amount_and_units(self, x):
         return format_satoshis_plain(x, self.decimal_point()) + ' ' + self.base_unit
 
+    def format_token_amount(self, x, token_decimals, is_diff=False, whitespaces=False):
+        return format_tokens(x, 0, token_decimals, is_diff=is_diff, whitespaces=whitespaces)
+
+    def format_token_amount_and_units(self, x, token_decimals, token_unit):
+        return format_token_plain(x, token_decimals) + ' ' + token_unit
+
     def format_fee_rate(self, fee_rate):
         # fee_rate is in sat/kB
         return format_fee_satoshis(fee_rate/1000) + ' sat/byte'
@@ -887,7 +922,7 @@ class ElectrumWindow(App):
             icon = (os.path.dirname(os.path.realpath(__file__))
                     + '/../../' + self.icon)
             notification.notify('Electrum', message,
-                            app_icon=icon, app_name='Electrum')
+                            app_icon=icon, app_name='Electrum for VIPSTARCOIN')
         except ImportError:
             Logger.Error('Notification: needs plyer; `sudo python3 -m pip install plyer`')
 
@@ -987,6 +1022,45 @@ class ElectrumWindow(App):
         d = TxDialog(self, tx)
         d.open()
 
+    def token_tx_dialog(self, token_tx, token, value, from_addr, to_addr):
+        from .uix.dialogs.token_tx_dialog import TokenTxDialog
+        d = TokenTxDialog(self, token_tx, token, value, from_addr, to_addr)
+        d.open()
+
+    def view_token_dialog(self, token):
+        from .uix.dialogs.view_token_dialog import ViewTokenDialog
+        d = ViewTokenDialog(self, token)
+        d.open()
+
+    def send_token_dialog(self, token):
+        from .uix.dialogs.send_token_dialog import SendTokenDialog
+        d = SendTokenDialog(self, token)
+        d.open()
+
+    def receive_token_dialog(self, token):
+        from .uix.dialogs.receive_token_dialog import ReceiveTokenDialog
+        d = ReceiveTokenDialog(self, token)
+        d.open()
+
+    def add_token(self):
+        from .uix.dialogs.add_token_dialog import AddTokenDialog
+        d = AddTokenDialog(self)
+        d.open()
+
+    def set_token(self, token):
+        self.wallet.add_token(token)
+        if self.tokens_screen:
+            self.tokens_screen.update()
+        if self.token_history_screen:
+            self.token_history_screen.update()
+
+    def delete_token(self, key):
+        self.wallet.delete_token(key)
+        if self.tokens_screen:
+            self.tokens_screen.update()
+        if self.token_history_screen:
+            self.token_history_screen.update()
+
     def sign_tx(self, *args):
         threading.Thread(target=self._sign_tx, args=args).start()
 
@@ -1048,6 +1122,39 @@ class ElectrumWindow(App):
         def cb(amount):
             screen.amount = amount
         popup = AmountDialog(show_max, amount, cb)
+        popup.open()
+
+    def token_amount_dialog(self, screen, unit, max_amount, show_max):
+        from .uix.dialogs.token_amount_dialog import TokenAmountDialog
+        amount = screen.amount
+        if amount:
+            amount, u = str(amount).split()
+            assert u == unit
+        def cb(amount):
+            screen.amount = amount
+        popup = TokenAmountDialog(show_max, amount, unit, max_amount, cb)
+        popup.open()
+
+    def invoices_dialog(self, screen):
+        from .uix.dialogs.invoices import InvoicesDialog
+        if len(self.wallet.invoices.sorted_list()) == 0:
+            self.show_info(' '.join([
+                _('No saved invoices.'),
+                _('Signed invoices are saved automatically when you scan them.'),
+                _('You may also save unsigned requests or contact addresses using the save button.')
+            ]))
+            return
+        popup = InvoicesDialog(self, screen, None)
+        popup.update()
+        popup.open()
+
+    def requests_dialog(self, screen):
+        from .uix.dialogs.requests import RequestsDialog
+        if len(self.wallet.get_sorted_requests(self.electrum_config)) == 0:
+            self.show_info(_('No saved requests.'))
+            return
+        popup = RequestsDialog(self, screen, None)
+        popup.update()
         popup.open()
 
     def addresses_dialog(self):
@@ -1152,3 +1259,4 @@ class ElectrumWindow(App):
                 self.show_error("Invalid PIN")
                 return
         self.protected(_("Enter your PIN code in order to decrypt your private key"), show_private_key, (addr, pk_label))
+

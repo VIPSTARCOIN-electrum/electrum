@@ -53,6 +53,12 @@ class RequestRecycleView(RecycleView):
 class PaymentRecycleView(RecycleView):
     pass
 
+class TokensRecycleView(RecycleView):
+    pass
+
+class TokenHistoryRecycleView(RecycleView):
+    pass
+
 class CScreen(Factory.Screen):
     __events__ = ('on_activate', 'on_deactivate', 'on_enter', 'on_leave')
     action_view = ObjectProperty(None)
@@ -109,6 +115,10 @@ TX_ICONS = [
     "clock3",
     "clock4",
     "clock5",
+    "clock6",
+    "clock7",
+    "clock8",
+    "clock9",
     "confirmed",
 ]
 
@@ -516,6 +526,105 @@ class ReceiveScreen(CScreen):
         d = Question(_('Delete expired requests?'), callback)
         d.open()
 
+
+
+class TokensScreen(CScreen):
+
+    tab = ObjectProperty(None)
+    kvname = 'tokens'
+    cards = {}
+
+    def __init__(self, **kwargs):
+        self.ra_dialog = None
+        super(TokensScreen, self).__init__(**kwargs)
+        self.menu_actions = [ ('Send Token', self.send_token), ('Receive Token', self.receive_token), ('Token Info', self.show_token)]
+
+    def token_enabled(self):
+        from electrum import bitcoin, constants
+        addresses = self.app.wallet.get_addresses_sort_by_balance()
+        try:
+            addr_type, __ = bitcoin.b58_address_to_hash160(addresses[0])
+        except:
+            addr_type = constants.net.SEGWIT_HRP
+        return addr_type == constants.net.ADDRTYPE_P2PKH
+
+    def send_token(self, obj):
+        token = obj.token
+        self.app.send_token_dialog(token)
+
+    def receive_token(self, obj):
+        token = obj.token
+        self.app.receive_token_dialog(token)
+
+    def show_token(self, obj):
+        token = obj.token
+        self.app.view_token_dialog(token)
+
+    def get_card(self, key):
+        token = self.app.wallet.db.get_token(key)
+        ri = {}
+        ri['screen'] = self
+        ri['token'] = token
+        ri['name'] = token.name
+        ri['symbol'] = token.symbol
+        ri['decimals'] = token.decimals
+        ri['balance'] = self.app.format_token_amount_and_units(token.balance, token.decimals, token.symbol)
+        ri['bind_addr'] = token.bind_addr
+        ri['contract_addr'] = token.contract_addr
+        return ri
+
+    def update(self, see_all=False):
+        if self.app.wallet is None:
+            return
+        self.token_enabled()
+        tokens = reversed(self.app.wallet.db.list_tokens())
+        tokens_card = self.screen.ids.tokens_container
+        tokens_card.data = [self.get_card(item) for item in tokens]
+
+
+class TokenHistoryScreen(CScreen):
+
+    tab = ObjectProperty(None)
+    kvname = 'token_history'
+    cards = {}
+
+    def __init__(self, **kwargs):
+        self.ra_dialog = None
+        super(TokenHistoryScreen, self).__init__(**kwargs)
+        self.menu_actions = [ ('Details', self.show_token_tx)]
+
+    def show_token_tx(self, obj):
+        tx_hash = obj.tx_hash
+        tx = self.app.wallet.db.get_token_tx(tx_hash)
+        if not tx:
+            return
+        self.app.token_tx_dialog(tx, obj.token, obj.value, obj.from_addr, obj.to_addr)
+
+    def get_card(self, tx_hash, tx_mined_status, token, value, from_addr, to_addr):
+        status, status_str = self.app.wallet.get_tx_status(tx_hash, tx_mined_status)
+        icon = "atlas://electrum/gui/kivy/theming/light/" + TX_ICONS[status]
+        ri = {}
+        ri['screen'] = self
+        ri['tx_hash'] = tx_hash
+        ri['icon'] = icon
+        ri['date'] = status_str
+        ri['confirmations'] = tx_mined_status.conf
+        ri['token'] = token
+        ri['from_addr'] = from_addr
+        ri['to_addr'] = to_addr
+        if value is not None:
+            ri['is_mine'] = value < 0
+            ri['value'] = value
+            if value < 0: value = - value
+            ri['amount'] = self.app.format_token_amount_and_units(value, token.decimals, token.symbol)
+        return ri
+
+    def update(self, see_all=False):
+        if self.app.wallet is None:
+            return
+        token_history = reversed(self.app.wallet.get_token_history())
+        token_history_card = self.screen.ids.token_history_container
+        token_history_card.data = [self.get_card(*item) for item in token_history]
 
 
 class TabbedCarousel(Factory.TabbedPanel):

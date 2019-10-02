@@ -25,18 +25,20 @@ import asyncio
 import threading
 import asyncio
 import itertools
+import binascii
 from collections import defaultdict
 from typing import TYPE_CHECKING, Dict, Optional, Set, Tuple, NamedTuple, Sequence
 
 from . import bitcoin
-from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, TYPE_PUBKEY
-from .util import profiler, bfh, TxMinedInfo
+from .bitcoin import COINBASE_MATURITY, TYPE_ADDRESS, TYPE_PUBKEY, TYPE_STAKE, hash160_to_p2pkh, b58_address_to_hash160
+from .util import profiler, bfh, bh2u, timestamp_to_datetime, TxMinedInfo
 from .transaction import Transaction, TxOutput
 from .synchronizer import Synchronizer
 from .verifier import SPV
-from .blockchain import hash_header
+from .blockchain import hash_header, TOKEN_TRANSFER_TOPIC
 from .i18n import _
 from .logging import Logger
+from operator import itemgetter
 
 if TYPE_CHECKING:
     from .network import Network
@@ -81,6 +83,7 @@ class AddressSynchronizer(Logger):
         self.lock = threading.RLock()
         self.transaction_lock = threading.RLock()
         self.future_tx = {} # txid -> blocks remaining
+        self.token_lock = threading.RLock()	# by Qtum
         # Transactions pending verification.  txid -> tx_height. Access with self.lock.
         self.unverified_tx = defaultdict(int)
         # true when synchronized
@@ -101,6 +104,7 @@ class AddressSynchronizer(Logger):
     def load_and_cleanup(self):
         self.load_local_history()
         self.check_history()
+        self.check_token_history()
         self.load_unverified_transactions()
         self.remove_local_transactions_we_dont_have()
 
@@ -154,6 +158,13 @@ class AddressSynchronizer(Logger):
             for tx_hash, tx_height in hist:
                 # add it in case it was previously unconfirmed
                 self.add_unverified_tx(tx_hash, tx_height)
+
+        # VIPSTARCOIN
+        # review transactions that are in the token history (by Qtum)
+        for key in self.db.get_token_history():
+            token_hist = self.db.get_key_token_history(key)
+            for txid, height, log_index in token_hist:
+                self.add_unverified_tx(txid, height)
 
     def start_network(self, network):
         self.network = network
@@ -226,7 +237,9 @@ class AddressSynchronizer(Logger):
             # BUT we track is_mine inputs in a txn, and during subsequent calls
             # of add_transaction tx, we might learn of more-and-more inputs of
             # being is_mine, as we roll the gap_limit forward
-            is_coinbase = tx.inputs()[0]['type'] == 'coinbase'
+
+            # VIPSTARCOIN (by Qtum)
+            is_coinbase = tx.inputs()[0]['type'] == 'coinbase' or tx.outputs()[0].type == TYPE_STAKE
             tx_height = self.get_tx_height(tx_hash).height
             if not allow_unrelated:
                 # note that during sync, if the transactions are not properly sorted,
@@ -475,6 +488,55 @@ class AddressSynchronizer(Logger):
             return []
 
         return h2
+
+
+    @with_local_height_cached
+    def get_token_history(self, contract_addr=None, bind_addr=None):
+        h = []
+        keys = []
+        for token_key in self.db.list_tokens():
+            if contract_addr and contract_addr in token_key \
+                    or bind_addr and bind_addr in token_key \
+                    or not bind_addr and not contract_addr:
+                keys.append(token_key)
+        for key in keys:
+            contract_addr, bind_addr = key.split('_')
+            for txid, height, log_index in self.db.get_key_token_history(key):
+                tx_mined_status = self.get_tx_height(txid)
+                for call_index, contract_call in enumerate(self.db.get_tx_receipt(txid)):
+                    logs = contract_call.get('log', [])
+                    if len(logs) > log_index:
+                        log = logs[log_index]
+
+                        # check contarct address
+                        if contract_addr != log.get('address', ''):
+                            self.logger.info("contract address mismatch")
+                            continue
+
+                        # check topic name
+                        topics = log.get('topics', [])
+                        if len(topics) < 3:
+                            self.logger.info("not enough topics")
+                            continue
+                        if topics[0] != TOKEN_TRANSFER_TOPIC:
+                            self.logger.info("topic mismatch")
+                            continue
+
+                        # check user bind address
+                        _, hash160b = b58_address_to_hash160(bind_addr)
+                        hash160 = bh2u(hash160b).zfill(64)
+                        if hash160 not in topics:
+                            self.logger.info("address mismatch")
+                            continue
+                        amount = int(log.get('data'), 16)
+                        from_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[1][-40:]))
+                        to_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[2][-40:]))
+                        if bind_addr == from_addr:
+                            amount = -1 * amount
+                        token = self.db.get_token(key)
+                        h.append((txid, tx_mined_status, token, amount, from_addr, to_addr))
+        h.sort(key = lambda x: self.get_txpos(x[0]))
+        return h
 
     def _add_tx_to_local_history(self, txid):
         with self.transaction_lock:
@@ -846,3 +908,57 @@ class AddressSynchronizer(Logger):
 
     def synchronize(self):
         pass
+
+    def get_tokens(self):
+        return sorted(self.db.get_token_history())
+
+    @profiler
+    def check_token_history(self):
+        # remove not mine and not subscribe token history
+        hist_keys_not_mine = list(filter(lambda k: not self.is_mine(k.split('_')[1]), self.db.get_token_history()))
+        hist_keys_not_subscribe = list(filter(lambda k: k not in self.db.tokens, self.db.get_token_history()))
+        for key in set(hist_keys_not_mine).union(hist_keys_not_subscribe):
+            hist = self.db.get_key_token_history(key)
+            for txid, height, log_index in hist:
+                self.db.remove_token_tx(txid)
+
+    def receive_token_history_callback(self, key, hist):
+        with self.token_lock:
+            self.db.set_key_token_history(key, hist)
+
+    def receive_tx_receipt_callback(self, tx_hash, tx_receipt):
+        self.add_tx_receipt(tx_hash, tx_receipt)
+
+    def receive_token_tx_callback(self, tx_hash, tx, tx_height):
+        self.add_unverified_tx(tx_hash, tx_height)
+        self.add_token_transaction(tx_hash, tx)
+
+    def add_tx_receipt(self, tx_hash, tx_receipt):
+        assert tx_hash, 'none tx_hash'
+        assert tx_receipt, 'empty tx_receipt'
+        for contract_call in tx_receipt:
+            if not contract_call.get('transactionHash') == tx_hash:
+                return
+            if not contract_call.get('log'):
+                return
+        with self.token_lock:
+            self.db.add_tx_receipt(tx_hash, tx_receipt)
+
+    def add_token_transaction(self, tx_hash, tx):
+        with self.token_lock:
+            assert tx.is_complete(), 'incomplete tx'
+            self.db.add_token_tx(tx_hash, tx)
+            return True
+
+    def add_token(self, token):
+        key = '{}_{}'.format(token[0], token[1])
+        self.db.add_token(key, token)
+        if self.synchronizer:
+            self.synchronizer.add_token(key)
+
+    def delete_token(self, key):
+        with self.token_lock:
+            if key in self.db.list_tokens():
+                self.db.remove_token(key)
+            if key in self.db.get_token_history():
+                self.db.remove_key_token_history(key)

@@ -25,7 +25,7 @@ import threading
 from typing import Optional, Dict, Mapping, Sequence
 
 from . import util
-from .bitcoin import hash_encode, int_to_hex, rev_hex
+from .bitcoin import hash_encode, int_to_hex, rev_hex, var_int, Deserializer
 from .crypto import sha256d
 from . import constants
 from .util import bfh, bh2u
@@ -35,8 +35,11 @@ from .logging import get_logger, Logger
 
 _logger = get_logger(__name__)
 
-HEADER_SIZE = 80  # bytes
-MAX_TARGET = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
+BASIC_HEADER_SIZE = 180  # bytes
+HEADER_SIZE = 252  # bytes
+POW_TARGET = 0x0000FFFF00000000000000000000000000000000000000000000000000000000
+POS_TARGET = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
+TOKEN_TRANSFER_TOPIC = 'ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
 
 class MissingHeader(Exception):
@@ -46,12 +49,19 @@ class InvalidHeader(Exception):
     pass
 
 def serialize_header(header_dict: dict) -> str:
+    sig_length = len(header_dict['sig'])//2
     s = int_to_hex(header_dict['version'], 4) \
         + rev_hex(header_dict['prev_block_hash']) \
         + rev_hex(header_dict['merkle_root']) \
         + int_to_hex(int(header_dict['timestamp']), 4) \
         + int_to_hex(int(header_dict['bits']), 4) \
-        + int_to_hex(int(header_dict['nonce']), 4)
+        + int_to_hex(int(header_dict['nonce']), 4) \
+        + rev_hex(header_dict['hash_state_root']) \
+        + rev_hex(header_dict['hash_utxo_root']) \
+        + rev_hex(header_dict['hash_prevout_stake']) \
+        + int_to_hex(int(header_dict['hash_prevout_n']), 4) \
+        + var_int(sig_length) \
+        + (header_dict['sig'])
     return s
 
 def deserialize_header(s: bytes, height: int) -> dict:
@@ -60,6 +70,8 @@ def deserialize_header(s: bytes, height: int) -> dict:
     if len(s) != HEADER_SIZE:
         raise InvalidHeader('Invalid header length: {}'.format(len(s)))
     hex_to_int = lambda s: int.from_bytes(s, byteorder='little')
+    deserializer = Deserializer(s, start=BASIC_HEADER_SIZE)
+    sig_length = deserializer.read_varint()
     h = {}
     h['version'] = hex_to_int(s[0:4])
     h['prev_block_hash'] = hash_encode(s[4:36])
@@ -67,6 +79,11 @@ def deserialize_header(s: bytes, height: int) -> dict:
     h['timestamp'] = hex_to_int(s[68:72])
     h['bits'] = hex_to_int(s[72:76])
     h['nonce'] = hex_to_int(s[76:80])
+    h['hash_state_root'] = hash_encode(s[80:112])
+    h['hash_utxo_root'] = hash_encode(s[112:144])
+    h['hash_prevout_stake'] = hash_encode(s[144:176])
+    h['hash_prevout_n'] = hex_to_int(s[176:180])
+    h['sig'] = hash_encode(s[:-sig_length-1:-1])
     h['block_height'] = height
     return h
 
@@ -81,6 +98,23 @@ def hash_header(header: dict) -> str:
 def hash_raw_header(header: str) -> str:
     return hash_encode(sha256d(bfh(header)))
 
+def is_pos(header: dict):
+    hash_prevout_stake = header.get('hash_prevout_stake', None)
+    hash_prevout_n = header.get('hash_prevout_n', 0)
+    return hash_prevout_stake and (
+        hash_prevout_stake != '0000000000000000000000000000000000000000000000000000000000000000'
+        or hash_prevout_n != 0xffffffff)
+
+def fix_header(header: bytes):
+    if len(header) == HEADER_SIZE - 1:
+        exception_header = header[0:181] + b'\x00' + header[181:251]
+        return exception_header
+    if len(header) == HEADER_SIZE - 2:
+        exception_header = header[0:181] + b'\x00\x00' + header[181:250]
+        return exception_header
+    while len(header) < HEADER_SIZE:
+        header += b'\x00'
+    return header
 
 # key: blockhash hex at forkpoint
 # the chain at some key is the best chain that includes the given hash
@@ -281,26 +315,32 @@ class Blockchain(Logger):
         self._size = os.path.getsize(p)//HEADER_SIZE if os.path.exists(p) else 0
 
     @classmethod
-    def verify_header(cls, header: dict, prev_hash: str, target: int, expected_header_hash: str=None) -> None:
+    def verify_header(cls, header: dict, prev_hash: str, target: int, check_header_bool: bool, expected_header_hash: str=None) -> None:
+        height = header.get('block_height')
+        if prev_hash != header.get('prev_block_hash'):
+            raise Exception("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
+        if check_header_bool is False and height % 12 != 0:
+            return
         _hash = hash_header(header)
         if expected_header_hash and expected_header_hash != _hash:
             raise Exception("hash mismatches with expected: {} vs {}".format(expected_header_hash, _hash))
-        if prev_hash != header.get('prev_block_hash'):
-            raise Exception("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
         if constants.net.TESTNET:
+            return
+        if height // 2016 < len(constants.net.CHECKPOINTS) and height % 2016 != 2015 or height >= len(constants.net.CHECKPOINTS)*2016 and height <= len(constants.net.CHECKPOINTS)*2016 + 2100:
             return
         bits = cls.target_to_bits(target)
         if bits != header.get('bits'):
             raise Exception("bits mismatch: %s vs %s" % (bits, header.get('bits')))
         block_hash_as_num = int.from_bytes(bfh(_hash), byteorder='big')
-        if block_hash_as_num > target:
+        if block_hash_as_num > target and not is_pos(header):
             raise Exception(f"insufficient proof of work: {block_hash_as_num} vs target {target}")
 
     def verify_chunk(self, index: int, data: bytes) -> None:
         num = len(data) // HEADER_SIZE
+        check_header_bool = True if num == 2016 else False
         start_height = index * 2016
         prev_hash = self.get_hash(start_height - 1)
-        target = self.get_target(index-1)
+        headers = {}
         for i in range(num):
             height = start_height + i
             try:
@@ -309,7 +349,12 @@ class Blockchain(Logger):
                 expected_header_hash = None
             raw_header = data[i*HEADER_SIZE : (i+1)*HEADER_SIZE]
             header = deserialize_header(raw_header, index*2016 + i)
-            self.verify_header(header, prev_hash, target, expected_header_hash)
+            headers[header.get('block_height')] = header
+            if check_header_bool is True or height % 12 == 0:
+                target = self.get_target(index*2016 + i, headers)
+            else:
+                target = 0
+            self.verify_header(header, prev_hash, target, check_header_bool, expected_header_hash)
             prev_hash = hash_header(header)
 
     @with_lock
@@ -346,6 +391,24 @@ class Blockchain(Logger):
         self.write(chunk, delta_bytes, truncate)
         self.swap_with_parent()
 
+    def fix_chunk(self, data: bytes):
+        fix_headers = b''
+        cursor = 0
+        while cursor < len(data):
+            bytes_header, cursor = self.read_a_raw_header_from_chunk(data, cursor)
+            if not bytes_header:
+                raise Exception('fix_chunk, no header read')
+
+            fixed_header = fix_header(bytes_header)
+            fix_headers += fixed_header
+        return fix_headers
+
+    def read_a_raw_header_from_chunk(self, data: bytes, start: int):
+        deserializer = Deserializer(data, start=start+BASIC_HEADER_SIZE)
+        sig_length = deserializer.read_varint()
+        cursor = deserializer.cursor + sig_length
+        return data[start: cursor], cursor
+
     def swap_with_parent(self) -> None:
         with self.lock, blockchains_lock:
             # do the swap; possibly multiple ones
@@ -370,7 +433,9 @@ class Blockchain(Logger):
         they will be stored in different files."""
         if self.parent is None:
             return False
-        if self.parent.get_chainwork() >= self.get_chainwork():
+        # get_chainwork doesn't work yet
+        #if self.parent.get_chainwork() >= self.get_chainwork():
+        if self.parent.height() - self.forkpoint + 1 >= self.size():
             return False
         self.logger.info(f"swapping {self.forkpoint} {self.parent.forkpoint}")
         parent_branch_size = self.parent.height() - self.forkpoint + 1
@@ -424,8 +489,9 @@ class Blockchain(Logger):
     def write(self, data: bytes, offset: int, truncate: bool=True) -> None:
         filename = self.path()
         self.assert_headers_file_available(filename)
+        size = os.path.getsize(filename) if os.path.exists(filename) else 0
         with open(filename, 'rb+') as f:
-            if truncate and offset != self._size * HEADER_SIZE:
+            if truncate and offset != size:
                 f.seek(offset)
                 f.truncate()
             f.seek(offset)
@@ -437,11 +503,13 @@ class Blockchain(Logger):
     @with_lock
     def save_header(self, header: dict) -> None:
         delta = header.get('block_height') - self.forkpoint
-        data = bfh(serialize_header(header))
+        data = fix_header(bfh(serialize_header(header)))
         # headers are only _appended_ to the end:
-        assert delta == self.size(), (delta, self.size())
+#        assert delta == self.size(), (delta, self.size())
         assert len(data) == HEADER_SIZE
-        self.write(data, delta*HEADER_SIZE)
+        filename = self.path()
+        size = os.path.getsize(filename) if os.path.exists(filename) else 0
+        self.write(data, size)
         self.swap_with_parent()
 
     @with_lock
@@ -489,36 +557,186 @@ class Blockchain(Logger):
                 raise MissingHeader(height)
             return hash_header(header)
 
-    def get_target(self, index: int) -> int:
+
+    def get_target_ehrc(self, height: int, last_height: int, chain=None) -> int:
+        """eHRC (enhanced Hash Rate Compensation)
+        Short, medium and long samples averaged together and compared against the target time span.
+        Adjust every block but limted to 9% change maximum.
+        Difficulty is calculated separately for PoW and PoS blocks in that PoW skips PoS blocks and vice versa.
+        """
+
+        crt = chain.get(height)
+        if crt is None:
+            crt = self.read_header(height)
+
+        last = chain.get(last_height)
+        if last is None:
+            last = self.read_header(last_height)
+
+        targetLimit = self.get_target_pow_pos(crt)
+        is_pos_crt = is_pos(crt)
+        shortSample = 15
+        mediumSample = 200
+        longSample = 1000
+        pindexFirstShortTime = 0
+        pindexFirstMediumTime = 0
+        ActualTimespan = 0
+        ActualTimespanShort = 0
+        ActualTimespanMedium = 0
+        ActualTimespanLong = 0
+        PowTargetTimespan = 120
+#        check = last
+#        check_height = last_height
+        firstlong = last
+        firstlong_height = last_height
+        bnNew = 0
+
+#        i = 0
+#        while i <= longSample + 1:
+#            if check == None:
+#                 return targetLimit
+#
+#            if is_pos_crt:
+#                if is_pos(check):
+#                    i += 1
+#            elif not is_pos(check):
+#                i += 1
+#
+#            check_height -= 1
+#            check = chain.get(check_height)
+#            if check is None:
+#                check = self.read_header(check_height)
+
+        if height <= 1000:
+            for i in range(0, longSample):
+                if not firstlong:
+                    break
+
+                firstlong_height -= 1
+                firstlong = chain.get(firstlong_height)
+                if firstlong is None:
+                    firstlong = self.read_header(firstlong_height)
+
+                if is_pos_crt:
+                    if not is_pos(firstlong):
+                        continue
+                elif is_pos(firstlong):
+                    continue
+
+                if i == shortSample - 1:
+                    pindexFirstShortTime = firstlong.get('timestamp')
+
+                if i == mediumSample - 1:
+                    pindexFirstMediumTime = firstlong.get('timestamp')
+        else:
+            i = 0
+            for j in range(2100):
+                if i == longSample or not firstlong:
+                    break
+                firstlong_height -= 1
+                firstlong = chain.get(firstlong_height)
+                if firstlong is None:
+                    firstlong = self.read_header(firstlong_height)
+
+                if is_pos_crt:
+                    if not is_pos(firstlong):
+                        continue
+                elif is_pos(firstlong):
+                    continue
+
+                if i == shortSample - 1:
+                    pindexFirstShortTime = firstlong.get('timestamp')
+
+                if i == mediumSample - 1:
+                    pindexFirstMediumTime = firstlong.get('timestamp')
+
+                i += 1
+
+        if last.get('timestamp') - pindexFirstShortTime != 0:
+            ActualTimespanShort = (last.get('timestamp') - pindexFirstShortTime) // shortSample
+
+        if last.get('timestamp') - pindexFirstMediumTime != 0:
+            ActualTimespanMedium = (last.get('timestamp') - pindexFirstMediumTime) // mediumSample
+
+        if last.get('timestamp') - firstlong.get('timestamp') != 0:
+            ActualTimespanLong = (last.get('timestamp') - firstlong.get('timestamp')) // longSample
+
+        ActualTimespanSum = ActualTimespanShort + ActualTimespanMedium + ActualTimespanLong
+
+        if ActualTimespanSum != 0:
+            ActualTimespan = ActualTimespanSum // 3
+
+        if height - 1 >= 1000:
+            # Apply .25 damping
+            ActualTimespan += 3 * PowTargetTimespan
+            ActualTimespan //= 4
+
+        # 9% difficulty limiter
+        ActualTimespanMax = PowTargetTimespan * 494 // 453
+        ActualTimespanMin = PowTargetTimespan * 453 // 494
+
+        ActualTimespan = max(ActualTimespan, ActualTimespanMin)
+
+        ActualTimespan = min(ActualTimespan, ActualTimespanMax)
+
+        bnNew = self.bits_to_target(last.get('bits'))
+        bnNew *= ActualTimespan;
+        bnNew //= PowTargetTimespan;
+
+        if bnNew <= 0 or bnNew > targetLimit:
+            bnNew = targetLimit
+        return bnNew
+
+    def get_target_pow_pos(self, block=None):
+        target = POW_TARGET
+        if is_pos(block):
+            target = POS_TARGET
+        return target
+
+    def get_last_block_height(self, height: int, chain=None) -> int:
+        # get last pow or pos block height
+        pindex = chain.get(height - 1)
+        if pindex is None:
+            pindex = self.read_header(height - 1)
+
+        pindex_prev = chain.get(height - 2)
+        if pindex_prev is None:
+            pindex_prev = self.read_header(height - 2)
+
+        crt = chain.get(height)
+        if crt is None:
+            crt = self.read_header(height)
+
+        prev_height = height - 1
+        while pindex and pindex_prev and is_pos(pindex) != is_pos(crt):
+            prev_height -= 1
+            pindex = chain.get(prev_height)
+            if pindex is None:
+                pindex = self.read_header(prev_height)
+            pindex_prev = chain.get(prev_height - 1)
+            if pindex_prev is None:
+                pindex_prev = self.read_header(prev_height - 1)
+
+        return prev_height
+
+    def get_target(self, height: int, chain=None) -> int:
         # compute target from chunk x, used in chunk x+1
         if constants.net.TESTNET:
             return 0
-        if index == -1:
-            return MAX_TARGET
-        if index < len(self.checkpoints):
-            h, t = self.checkpoints[index]
+        elif height // 2016 < len(self.checkpoints) and height % 2016 == 2015:
+            h, t = self.checkpoints[height // 2016]
             return t
-        # new target
-        first = self.read_header(index * 2016)
-        last = self.read_header(index * 2016 + 2015)
-        if not first or not last:
-            raise MissingHeader()
-        bits = last.get('bits')
-        target = self.bits_to_target(bits)
-        nActualTimespan = last.get('timestamp') - first.get('timestamp')
-        nTargetTimespan = 14 * 24 * 60 * 60
-        nActualTimespan = max(nActualTimespan, nTargetTimespan // 4)
-        nActualTimespan = min(nActualTimespan, nTargetTimespan * 4)
-        new_target = min(MAX_TARGET, (target * nActualTimespan) // nTargetTimespan)
-        # not any target can be represented in 32 bits:
-        new_target = self.bits_to_target(self.target_to_bits(new_target))
-        return new_target
+        elif height // 2016 < len(self.checkpoints) and height % 2016 != 2015 or height <= len(self.checkpoints) * 2016 + 2100:
+            return 0
+        else:
+            last_height = self.get_last_block_height(height, chain)
+            return self.get_target_ehrc(height, last_height, chain)
 
     @classmethod
     def bits_to_target(cls, bits: int) -> int:
         bitsN = (bits >> 24) & 0xff
-        if not (0x03 <= bitsN <= 0x1d):
-            raise Exception("First part of bits should be in [0x03, 0x1d]")
+        if not (0x03 <= bitsN <= 0x1f):
+            raise Exception("First part of bits should be in [0x03, 0x1f]")
         bitsBase = bits & 0xffffff
         if not (0x8000 <= bitsBase <= 0x7fffff):
             raise Exception("Second part of bits should be in [0x8000, 0x7fffff]")
@@ -537,9 +755,12 @@ class Blockchain(Logger):
 
     def chainwork_of_header_at_height(self, height: int) -> int:
         """work done by single header at given height"""
-        chunk_idx = height // 2016 - 1
-        target = self.get_target(chunk_idx)
-        work = ((2 ** 256 - target - 1) // (target + 1)) + 1
+        header = self.read_header(height)
+        work = 0
+        if header:
+            bits = header.get('bits')
+            target = self.bits_to_target(bits)
+            work = ((2 ** 256 - target - 1) // (target + 1)) + 1
         return work
 
     @with_lock
@@ -574,22 +795,30 @@ class Blockchain(Logger):
             return False
         height = header['block_height']
         if check_height and self.height() != height - 1:
+            _logger.info(f"check_height failed {self.height()}, {height - 1}")
             return False
         if height == 0:
             return hash_header(header) == constants.net.GENESIS
         try:
             prev_hash = self.get_hash(height - 1)
         except:
+            _logger.info(f"hash check failed {height}")
             return False
         if prev_hash != header.get('prev_block_hash'):
+            _logger.info(f"hash check failed {prev_hash}, {header.get('prev_block_hash')}")
             return False
+        headers = {}
+        headers[header.get('block_height')] = header
+        check_header_bool = True
         try:
-            target = self.get_target(height // 2016 - 1)
+            target = self.get_target(height, headers)
         except MissingHeader:
+            _logger.info(f"verify_header failed {height}")
             return False
         try:
-            self.verify_header(header, prev_hash, target)
+            self.verify_header(header, prev_hash, target, check_header_bool)
         except BaseException as e:
+            _logger.info(f"verify_header failed {e}, {height}")
             return False
         return True
 
@@ -597,8 +826,9 @@ class Blockchain(Logger):
         assert idx >= 0, idx
         try:
             data = bfh(hexdata)
-            self.verify_chunk(idx, data)
-            self.save_chunk(idx, data)
+            fixed_data = self.fix_chunk(data)
+            self.verify_chunk(idx, fixed_data)
+            self.save_chunk(idx, fixed_data)
             return True
         except BaseException as e:
             self.logger.info(f'verify_chunk idx {idx} failed: {repr(e)}')
@@ -610,7 +840,8 @@ class Blockchain(Logger):
         n = self.height() // 2016
         for index in range(n):
             h = self.get_hash((index+1) * 2016 -1)
-            target = self.get_target(index)
+            header = self.read_header((index+1) * 2016 -1)
+            target = self.bits_to_target(header.get('bits'))
             cp.append((h, target))
         return cp
 

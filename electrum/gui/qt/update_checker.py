@@ -19,17 +19,17 @@ from electrum.logging import Logger
 
 
 class UpdateCheck(QWidget, Logger):
-    url = "https://electrum.org/version"
-    download_url = "https://electrum.org/#download"
+    url = "https://raw.githubusercontent.com/vipstarcoin-electrum/vipstarcoin-electrum.github.io/master/version"
+    download_url = "https://electrum-vips.info"
 
     VERSION_ANNOUNCEMENT_SIGNING_KEYS = (
-        "13xjmVAB1EATPP8RshTE8S8sNwwSUM9p1P",
+        "VPUp5TarpUyGfbauxqfvVH5ATCvn8QmEC5",
     )
 
     def __init__(self, main_window, latest_version=None):
         self.main_window = main_window
         QWidget.__init__(self)
-        self.setWindowTitle('Electrum - ' + _('Update Check'))
+        self.setWindowTitle('Electrum for VIPSTARCOIN - ' + _('Update Check'))
         self.content = QVBoxLayout()
         self.content.setContentsMargins(*[10]*4)
 

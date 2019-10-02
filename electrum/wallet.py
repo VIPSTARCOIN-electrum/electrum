@@ -35,6 +35,7 @@ import copy
 import errno
 import traceback
 import operator
+import binascii
 from functools import partial
 from numbers import Number
 from decimal import Decimal
@@ -49,8 +50,9 @@ from .util import (NotEnoughFunds, UserCancelled, profiler,
                    Fiat, bfh, bh2u, TxMinedInfo, quantize_feerate, create_bip21_uri, OrderedDictWithIndex)
 from .util import PR_TYPE_ONCHAIN, PR_TYPE_LN
 from .simple_config import SimpleConfig
-from .bitcoin import (COIN, TYPE_ADDRESS, is_address, address_to_script,
-                      is_minikey, relayfee, dust_threshold)
+from .bitcoin import (COIN, COINBASE_MATURITY, RECOMMEND_CONFIRMATIONS, TYPE_ADDRESS, TYPE_STAKE, is_address, address_to_script,
+                      b58_address_to_hash160, hash160_to_p2pkh, is_minikey, relayfee, dust_threshold)
+from .blockchain import TOKEN_TRANSFER_TOPIC
 from .crypto import sha256d
 from . import keystore
 from .keystore import load_keystore, Hardware_KeyStore, KeyStore
@@ -69,6 +71,7 @@ from .mnemonic import Mnemonic
 from .logging import get_logger
 from .lnworker import LNWallet
 from .paymentrequest import PaymentRequest
+from .smart_contracts import SmartContracts
 
 if TYPE_CHECKING:
     from .network import Network
@@ -243,6 +246,8 @@ class Abstract_Wallet(AddressSynchronizer):
             self.storage.put('wallet_type', self.wallet_type)
 
         self.contacts = Contacts(self.storage)
+        self.smart_contracts = SmartContracts(self.storage)
+
         self._coin_price_cache = {}
         self.lnworker = LNWallet(self) if self.config.get('lightning') else None
 
@@ -475,6 +480,21 @@ class Abstract_Wallet(AddressSynchronizer):
         # first receiving address
         return self.get_receiving_addresses(slice_start=0, slice_stop=1)[0]
 
+    def get_addresses_sort_by_balance(self):
+        addrs = []
+        for addr in self.get_addresses():
+            c, u, x = self.get_addr_balance(addr)
+            addrs.append((addr, c + u))
+        return list([addr[0] for addr in sorted(addrs, key=lambda y: (-int(y[1]), y[0]))])
+
+    def get_spendable_addresses(self, min_amount=0.000000001):
+        result = []
+        for addr in self.get_addresses():
+            c, u, x = self.get_addr_balance(addr)
+            if c >= min_amount:
+                result.append(addr)
+        return result
+
     def get_frozen_balance(self):
         if not self.frozen_coins:  # shortcut
             return self.get_balance(self.frozen_addresses)
@@ -705,6 +725,71 @@ class Abstract_Wallet(AddressSynchronizer):
             'summary': summary
         }
 
+    @profiler
+    def get_full_token_history(self, contract_addr=None, bind_addr=None, from_timestamp=None, to_timestamp=None):
+        h = []
+        keys = []
+        for token_key in self.db.list_tokens():
+            if contract_addr and contract_addr in token_key \
+                    or bind_addr and bind_addr in token_key \
+                    or not bind_addr and not contract_addr:
+                keys.append(token_key)
+        for key in keys:
+            contract_addr, bind_addr = key.split('_')
+            for txid, height, log_index in self.db.get_key_token_history(key):
+                status = self.get_tx_height(txid)
+                height, conf, timestamp = status.height, status.conf, status.timestamp
+                for call_index, contract_call in enumerate(self.db.get_tx_receipt(txid)):
+                    logs = contract_call.get('log', [])
+                    if len(logs) > log_index:
+                        log = logs[log_index]
+
+                        # check contarct address
+                        if contract_addr != log.get('address', ''):
+                            self.logger.info("contract address mismatch")
+                            continue
+
+                        # check topic name
+                        topics = log.get('topics', [])
+                        if len(topics) < 3:
+                            self.logger.info("not enough topics")
+                            continue
+                        if topics[0] != TOKEN_TRANSFER_TOPIC:
+                            self.logger.info("topic mismatch")
+                            continue
+
+                        # check user bind address
+                        _, hash160b = b58_address_to_hash160(bind_addr)
+                        hash160 = bh2u(hash160b).zfill(64)
+                        if hash160 not in topics:
+                            self.logger.info("address mismatch")
+                            continue
+                        amount = int(log.get('data'), 16)
+                        from_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[1][-40:]))
+                        to_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[2][-40:]))
+                        item = {
+                            'from_addr': from_addr,
+                            'to_addr': to_addr,
+                            'bind_addr': self.db.get_token(key).bind_addr,
+                            'amount': amount,
+                            'token_key': key,
+                            'txid': txid,
+                            'height': height,
+                            'txpos_in_block': 0,
+                            'confirmations': conf,
+                            'timestamp': timestamp,
+                            'date': timestamp_to_datetime(timestamp),
+                            'call_index': call_index,
+                            'log_index': log_index,
+                        }
+                        h.append(item)
+                    else:
+                        continue
+        return {
+            'transactions': h
+        }
+
+
     def default_fiat_value(self, tx_hash, fx, value_sat):
         return value_sat / Decimal(COIN) * self.price_at_timestamp(tx_hash, fx.timestamp_rate)
 
@@ -732,22 +817,42 @@ class Abstract_Wallet(AddressSynchronizer):
         return self.labels.get(tx_hash, '') or self.get_default_label(tx_hash)
 
     def get_default_label(self, tx_hash):
+        # VIPSTARCOIN diff(by Qtum)
         if not self.db.get_txi_addresses(tx_hash):
             labels = []
             for addr in self.db.get_txo_addresses(tx_hash):
                 label = self.labels.get(addr)
                 if label:
                     labels.append(label)
-            return ', '.join(labels)
+            if labels:
+                return ', '.join(labels)
+        try:
+            tx = self.db.get_transaction(tx_hash)
+            if tx.outputs()[0].type == TYPE_STAKE:
+                return _('stake mined')
+            elif tx.inputs()[0]['type'] == 'coinbase':
+                return 'coinbase'
+        except (BaseException,) as e:
+            _logger.info('get_default_label', e, TYPE_STAKE)
         return ''
 
     def get_tx_status(self, tx_hash, tx_mined_info: TxMinedInfo):
+        # VIPSTARCOIN diff(by Qtum)
         extra = []
         height = tx_mined_info.height
         conf = tx_mined_info.conf
         timestamp = tx_mined_info.timestamp
         if height == TX_HEIGHT_FUTURE:
             return 2, 'in %d blocks'%conf
+        is_mined = False
+        is_staked = False
+        tx = None
+        tx = self.db.get_transaction(tx_hash)
+        if tx:
+            is_mined = tx.inputs()[0]['type'] == 'coinbase'
+            is_staked = tx.outputs()[0].type == TYPE_STAKE
+        else:
+            tx = self.db.get_token_tx(tx_hash)
         if conf == 0:
             tx = self.db.get_transaction(tx_hash)
             if not tx:
@@ -773,8 +878,10 @@ class Abstract_Wallet(AddressSynchronizer):
                 status = 0
             else:
                 status = 2  # not SPV verified
+        elif is_mined or is_staked:
+            status = 3 + max(min(conf // (COINBASE_MATURITY // RECOMMEND_CONFIRMATIONS), RECOMMEND_CONFIRMATIONS), 1)
         else:
-            status = 3 + min(conf, 6)
+            status = 3 + min(conf, RECOMMEND_CONFIRMATIONS)
         time_str = format_time(timestamp) if timestamp else _("unknown")
         status_str = TX_STATUS[status] if status < 4 else time_str
         if extra:
@@ -849,7 +956,7 @@ class Abstract_Wallet(AddressSynchronizer):
         return change_addrs[:max_change]
 
     def make_unsigned_transaction(self, coins, outputs, fixed_fee=None,
-                                  change_addr=None, is_sweep=False):
+                                  change_addr=None, is_sweep=False, gas_fee=0, sender=None):
         # check outputs
         i_max = None
         for i, o in enumerate(outputs):
@@ -869,17 +976,20 @@ class Abstract_Wallet(AddressSynchronizer):
 
         # Fee estimator
         if fixed_fee is None:
-            fee_estimator = self.config.estimate_fee
+            fee_estimator = self.config.estimate_fee + gas_fee
         elif isinstance(fixed_fee, Number):
             fee_estimator = lambda size: fixed_fee
         elif callable(fixed_fee):
             fee_estimator = fixed_fee
         else:
-            raise Exception('Invalid argument fixed_fee: %s' % fixed_fee)
+            fee_estimator = lambda size: fixed_fee
 
         if i_max is None:
             # Let the coin chooser select the coins to spend
-            coin_chooser = coinchooser.get_coin_chooser(self.config)
+            if sender:
+                coin_chooser = coinchooser.CoinChooserVIPSTARCOIN()
+            else:
+                coin_chooser = coinchooser.get_coin_chooser(self.config)
             # If there is an unconfirmed RBF tx, merge with it
             base_tx = self.get_unconfirmed_base_tx_for_batching()
             if self.config.get('batch_rbf', False) and base_tx:
@@ -908,19 +1018,14 @@ class Abstract_Wallet(AddressSynchronizer):
             # change address. if empty, coin_chooser will set it
             change_addrs = self.get_change_addresses_for_new_transaction(change_addr or old_change_addrs)
             tx = coin_chooser.make_tx(coins, txi, outputs[:] + txo, change_addrs,
-                                      fee_estimator, self.dust_threshold())
+                                      fee_estimator, self.dust_threshold(), sender)
         else:
-            # "spend max" branch
-            # note: This *will* spend inputs with negative effective value (if there are any).
-            #       Given as the user is spending "max", and so might be abandoning the wallet,
-            #       try to include all UTXOs, otherwise leftover might remain in the UTXO set
-            #       forever. see #5433
-            # note: Actually it might be the case that not all UTXOs from the wallet are
-            #       being spent if the user manually selected UTXOs.
+            # FIXME?? this might spend inputs with negative effective value...
             sendable = sum(map(lambda x:x['value'], coins))
             outputs[i_max] = outputs[i_max]._replace(value=0)
             tx = Transaction.from_io(coins, outputs[:])
             fee = fee_estimator(tx.estimated_size())
+            fee = fee + gas_fee
             amount = sendable - tx.output_value() - fee
             if amount < 0:
                 raise NotEnoughFunds()
@@ -1170,11 +1275,21 @@ class Abstract_Wallet(AddressSynchronizer):
     def add_input_sig_info(self, txin, address):
         raise NotImplementedError()  # implemented by subclasses
 
-    def add_input_info(self, txin):
+    def add_input_info(self, txin, check_p2pk=False):
         address = self.get_txin_address(txin)
         if self.is_mine(address):
             txin['address'] = address
-            txin['type'] = self.get_txin_type(address)
+            txin_type = self.get_txin_type(address)
+            if check_p2pk and txin_type == 'p2pkh':
+                prevout_tx = self.transactions.get(txin['prevout_hash'])
+                if not prevout_tx:
+                    return
+                prevout_n = txin['prevout_n']
+                t = prevout_tx.outputs()[prevout_n].type
+                if t == TYPE_PUBKEY:
+                    txin_type = 'p2pk'
+            txin['type'] = txin_type
+
             # segwit needs value to sign
             if txin.get('value') is None:
                 received, spent = self.get_addr_io(address)
@@ -1315,6 +1430,7 @@ class Abstract_Wallet(AddressSynchronizer):
                 return True, conf
         return False, None
 
+<<<<<<< HEAD
     def get_request_URI(self, addr):
         req = self.receive_requests[addr]
         message = self.labels.get(addr, '')
@@ -1807,15 +1923,17 @@ class Imported_Wallet(Simple_Wallet):
         return redeem_script
 
     def get_txin_type(self, address):
+        # this cannot tell p2pkh and p2pk
         return self.db.get_imported_address(address).get('type', 'address')
 
     def add_input_sig_info(self, txin, address):
         if self.is_watching_only():
+            addrtype, hash160_ = b58_address_to_hash160(address)
             x_pubkey = 'fd' + address_to_script(address)
             txin['x_pubkeys'] = [x_pubkey]
             txin['signatures'] = [None]
             return
-        if txin['type'] in ['p2pkh', 'p2wpkh', 'p2wpkh-p2sh']:
+        if txin['type'] in ['p2pkh', 'p2wpkh', 'p2wpkh-p2sh', 'p2pk']:
             pubkey = self.db.get_imported_address(address)['pubkey']
             txin['num_sig'] = 1
             txin['x_pubkeys'] = [pubkey]
