@@ -326,7 +326,7 @@ class Blockchain(Logger):
             raise Exception("hash mismatches with expected: {} vs {}".format(expected_header_hash, _hash))
         if constants.net.TESTNET:
             return
-        if height // 2016 < len(constants.net.CHECKPOINTS) and height % 2016 != 2015 or height >= len(constants.net.CHECKPOINTS)*2016 and height <= (len(constants.net.CHECKPOINTS)+1)*2016:
+        if height // 2016 < len(constants.net.CHECKPOINTS) and height % 2016 != 2015 or height >= len(constants.net.CHECKPOINTS)*2016 and height <= len(constants.net.CHECKPOINTS)*2016 + 2100:
             return
         bits = cls.target_to_bits(target)
         if bits != header.get('bits'):
@@ -630,7 +630,9 @@ class Blockchain(Logger):
                     pindexFirstMediumTime = firstlong.get('timestamp')
         else:
             i = 0
-            while i < longSample and firstlong:
+            for j in range(2100):
+                if i == longSample or not firstlong:
+                    break
                 firstlong_height -= 1
                 firstlong = chain.get(firstlong_height)
                 if firstlong is None:
@@ -683,7 +685,6 @@ class Blockchain(Logger):
 
         if bnNew <= 0 or bnNew > targetLimit:
             bnNew = targetLimit
-
         return bnNew
 
     def get_target_pow_pos(self, block=None):
@@ -697,18 +698,26 @@ class Blockchain(Logger):
         pindex = chain.get(height - 1)
         if pindex is None:
             pindex = self.read_header(height - 1)
+
+        pindex_prev = chain.get(height - 2)
+        if pindex_prev is None:
+            pindex_prev = self.read_header(height - 2)
+
         crt = chain.get(height)
         if crt is None:
             crt = self.read_header(height)
 
         prev_height = height - 1
-        while pindex and is_pos(pindex) != is_pos(crt):
+        while pindex and pindex_prev and is_pos(pindex) != is_pos(crt):
             prev_height -= 1
             pindex = chain.get(prev_height)
             if pindex is None:
                 pindex = self.read_header(prev_height)
+            pindex_prev = chain.get(prev_height - 1)
+            if pindex_prev is None:
+                pindex_prev = self.read_header(prev_height - 1)
 
-        return pindex.get('block_height')
+        return prev_height
 
     def get_target(self, height: int, chain=None) -> int:
         # compute target from chunk x, used in chunk x+1
@@ -717,7 +726,7 @@ class Blockchain(Logger):
         elif height // 2016 < len(self.checkpoints) and height % 2016 == 2015:
             h, t = self.checkpoints[height // 2016]
             return t
-        elif height // 2016 < len(self.checkpoints) and height % 2016 != 2015 or height <= (len(self.checkpoints)+1) * 2016:
+        elif height // 2016 < len(self.checkpoints) and height % 2016 != 2015 or height <= len(self.checkpoints) * 2016 + 2100:
             return 0
         else:
             last_height = self.get_last_block_height(height, chain)
