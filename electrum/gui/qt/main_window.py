@@ -154,7 +154,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.fx = gui_object.daemon.fx  # type: FxThread
         self.contacts = wallet.contacts
         self.smart_contracts = wallet.smart_contracts
-        self.tokens = wallet.tokens
+        self.tokens = wallet.db.tokens
         self.tray = gui_object.tray
         self.app = gui_object.app
         self.cleaned_up = False
@@ -308,9 +308,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         if self.fx.history_used_spot:
             self.history_model.refresh('fx_quotes')
         self.address_list.update()
-
-    def on_token(self, b):
-        self.new_fx_token_signal.emit()
 
     def on_fx_token(self):
         self.token_hist_list.update()
@@ -3392,7 +3389,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
     def _smart_contract_broadcast(self, outputs, desc, gas_fee, sender, dialog, broadcast_done=None, preview=False):
         coins = self.get_coins()
         try:
-            tx = self.wallet.make_unsigned_transaction(coins, outputs, self.config, None,
+            tx = self.wallet.make_unsigned_transaction(coins, outputs, None,
                                                        change_addr=sender,
                                                        gas_fee=gas_fee,
                                                        sender=sender)

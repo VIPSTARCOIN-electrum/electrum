@@ -976,11 +976,7 @@ class Abstract_Wallet(AddressSynchronizer):
 
         # Fee estimator
         if fixed_fee is None:
-            fee_estimator = self.config.estimate_fee + gas_fee
-        elif isinstance(fixed_fee, Number):
-            fee_estimator = lambda size: fixed_fee
-        elif callable(fixed_fee):
-            fee_estimator = fixed_fee
+            fee_estimator = lambda size: self.config.estimate_fee(size) + gas_fee
         else:
             fee_estimator = lambda size: fixed_fee
 
@@ -1430,7 +1426,6 @@ class Abstract_Wallet(AddressSynchronizer):
                 return True, conf
         return False, None
 
-<<<<<<< HEAD
     def get_request_URI(self, addr):
         req = self.receive_requests[addr]
         message = self.labels.get(addr, '')

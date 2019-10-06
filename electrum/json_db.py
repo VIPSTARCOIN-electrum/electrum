@@ -28,12 +28,8 @@ import json
 import copy
 import threading
 from collections import defaultdict
-<<<<<<< HEAD
 from typing import Dict, Optional, List, Tuple, Set, Iterable, NamedTuple
-=======
 from functools import reduce
-from typing import Dict, Optional
->>>>>>> master-3.3.x
 
 from . import util, bitcoin
 from .util import profiler, WalletFileException, multisig_type, TxMinedInfo
