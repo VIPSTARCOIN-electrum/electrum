@@ -118,15 +118,17 @@ class AddTokenDialog(Factory.Popup):
         try:
             token_data = self.app.network.run_from_another_thread(self.app.network.get_token_info(contract_addr))
         except:
-            token_data = None
+            try:
+                token_data = self.app.network.run_from_another_thread(self.app.network.get_token_info(contract_addr))
+            except:
+                token_data = None
         if token_data:
             return True
         return False
 
     def do_paste(self):
         from electrum.bitcoin import base_decode, is_address
-        data = self.app._clipboard.paste()
-        data = data.strip()
+        data = self.app._clipboard.paste().strip()
         if not data:
             self.app.show_info(_("Clipboard is empty"))
             return
