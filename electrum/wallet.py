@@ -578,7 +578,6 @@ class Abstract_Wallet(AddressSynchronizer):
 
     def get_invoices(self):
         out = [self.get_invoice(key) for key in self.invoices.keys()]
-        out = [x for x in out if x and x.get('status') != PR_PAID]
         out.sort(key=operator.itemgetter('time'))
         return out
 
@@ -593,8 +592,8 @@ class Abstract_Wallet(AddressSynchronizer):
         request_type = item.get('type')
         if request_type == PR_TYPE_ONCHAIN:
             item['status'] = PR_PAID if item.get('txid') is not None else PR_UNPAID
-        elif request_type == PR_TYPE_LN:
-            item['status'] = self.lnworker.get_invoice_status(bfh(item['rhash']))
+        elif self.lnworker and request_type == PR_TYPE_LN:
+            item['status'] = self.lnworker.get_payment_status(bfh(item['rhash']))
         else:
             return
         self.check_if_expired(item)
@@ -1469,15 +1468,16 @@ class Abstract_Wallet(AddressSynchronizer):
         if not req:
             return
         req = copy.copy(req)
-        if req['type'] == PR_TYPE_ONCHAIN:
+        _type = req.get('type')
+        if _type == PR_TYPE_ONCHAIN:
             addr = req['address']
             req['URI'] = self.get_request_URI(addr)
             status, conf = self.get_request_status(addr)
             req['status'] = status
             if conf is not None:
                 req['confirmations'] = conf
-        elif req['type'] == PR_TYPE_LN:
-            req['status'] = self.lnworker.get_invoice_status(bfh(key))
+        elif self.lnworker and _type == PR_TYPE_LN:
+            req['status'] = self.lnworker.get_payment_status(bfh(key))
         else:
             return
         self.check_if_expired(req)
@@ -1553,7 +1553,7 @@ class Abstract_Wallet(AddressSynchronizer):
         if key in self.receive_requests:
             self.remove_payment_request(key)
         elif self.lnworker:
-            self.lnworker.delete_invoice(key)
+            self.lnworker.delete_payment(key)
 
     def delete_invoice(self, key):
         """ lightning or on-chain """
@@ -1561,7 +1561,7 @@ class Abstract_Wallet(AddressSynchronizer):
             self.invoices.pop(key)
             self.storage.put('invoices', self.invoices)
         elif self.lnworker:
-            self.lnworker.delete_invoice(key)
+            self.lnworker.delete_payment(key)
 
     def remove_payment_request(self, addr):
         if addr not in self.receive_requests:
@@ -1573,6 +1573,7 @@ class Abstract_Wallet(AddressSynchronizer):
     def get_sorted_requests(self):
         """ sorted by timestamp """
         out = [self.get_request(x) for x in self.receive_requests.keys()]
+        out = [x for x in out if x is not None]
         out.sort(key=operator.itemgetter('time'))
         return out
 
