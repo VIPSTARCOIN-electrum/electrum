@@ -540,7 +540,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         if cb_checked:
             self.config.set_key('dont_show_testnet_warning', True)
 
-    def warn_if_trezor_and_not_p2pkh(self):
+    def warn_if_trezor_or_not_p2pkh(self):
         try:
             addr_type, __ = b58_address_to_hash160(self.addresses[0])
         except:
@@ -555,8 +555,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             return
         self.gui_object._warned_trezor_and_not_p2pkh = True
         msg = ''.join([
-            _("You are using Trezor or SegWit Address."), '\n',
-            _("Smart contracts and tokens can not be used with Trezor and SegWit Address.")
+            _("You are using Trezor or Multisig Address or SegWit Address."), '\n',
+            _("Smart contracts and tokens can not be used with Trezor and Multisig Address and SegWit Address.")
         ])
         cb = QCheckBox(_("Don't show this again."))
         cb_checked = False

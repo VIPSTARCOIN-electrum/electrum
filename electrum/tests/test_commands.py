@@ -98,14 +98,14 @@ class TestCommands(ElectrumTestCase):
         with self.assertRaises(Exception):
             cmds._run('getprivatekeys', ("asdasd",), wallet=wallet)  # invalid addr, though might raise "not in wallet"
         with self.assertRaises(Exception):
-            cmds._run('getprivatekeys', ("bc1qgfam82qk7uwh5j2xxmcd8cmklpe0zackyj6r23",), wallet=wallet)  # not in wallet
+            cmds._run('getprivatekeys', ("vips1qgfam82qk7uwh5j2xxmcd8cmklpe0zackrsmcd5",), wallet=wallet)  # not in wallet
         self.assertEqual("p2wpkh:L4jkdiXszG26SUYvwwJhzGwg37H2nLhrbip7u6crmgNeJysv5FHL",
-                         cmds._run('getprivatekeys', ("bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw",), wallet=wallet))
+                         cmds._run('getprivatekeys', ("vips1q2ccr34wzep58d4239tl3x3734ttle92aqjzqmt",), wallet=wallet))
         # list of addresses tests
         with self.assertRaises(Exception):
-            cmds._run('getprivatekeys', (['bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw', 'asd'], ), wallet=wallet)
+            cmds._run('getprivatekeys', (['vips1q2ccr34wzep58d4239tl3x3734ttle92aqjzqmt', 'asd'], ), wallet=wallet)
         self.assertEqual(['p2wpkh:L4jkdiXszG26SUYvwwJhzGwg37H2nLhrbip7u6crmgNeJysv5FHL', 'p2wpkh:L4rYY5QpfN6wJEF4SEKDpcGhTPnCe9zcGs6hiSnhpprZqVywFifN'],
-                         cmds._run('getprivatekeys', (['bc1q2ccr34wzep58d4239tl3x3734ttle92a8srmuw', 'bc1q9pzjpjq4nqx5ycnywekcmycqz0wjp2nq604y2n'], ), wallet=wallet))
+                         cmds._run('getprivatekeys', (['vips1q2ccr34wzep58d4239tl3x3734ttle92aqjzqmt', 'vips1q9pzjpjq4nqx5ycnywekcmycqz0wjp2nqad5ldk'], ), wallet=wallet))
 
     @mock.patch.object(storage.WalletStorage, '_write')
     def test_export_private_key_deterministic(self, mock_write):
@@ -118,14 +118,14 @@ class TestCommands(ElectrumTestCase):
         with self.assertRaises(Exception):
             cmds._run('getprivatekeys', ("asdasd",), wallet=wallet)  # invalid addr, though might raise "not in wallet"
         with self.assertRaises(Exception):
-            cmds._run('getprivatekeys', ("bc1qgfam82qk7uwh5j2xxmcd8cmklpe0zackyj6r23",), wallet=wallet)  # not in wallet
+            cmds._run('getprivatekeys', ("vips1qgfam82qk7uwh5j2xxmcd8cmklpe0zackrsmcd5",), wallet=wallet)  # not in wallet
         self.assertEqual("p2wpkh:L15oxP24NMNAXxq5r2aom24pHPtt3Fet8ZutgL155Bad93GSubM2",
-                         cmds._run('getprivatekeys', ("bc1q3g5tmkmlvxryhh843v4dz026avatc0zzr6h3af",), wallet=wallet))
+                         cmds._run('getprivatekeys', ("vips1q2ccr34wzep58d4239tl3x3734ttle92aqjzqmt",), wallet=wallet))
         # list of addresses tests
         with self.assertRaises(Exception):
-            cmds._run('getprivatekeys', (['bc1q3g5tmkmlvxryhh843v4dz026avatc0zzr6h3af', 'asd'],), wallet=wallet)
+            cmds._run('getprivatekeys', (['vips1q3g5tmkmlvxryhh843v4dz026avatc0zzyck26v', 'asd'],), wallet=wallet)
         self.assertEqual(['p2wpkh:L15oxP24NMNAXxq5r2aom24pHPtt3Fet8ZutgL155Bad93GSubM2', 'p2wpkh:L4rYY5QpfN6wJEF4SEKDpcGhTPnCe9zcGs6hiSnhpprZqVywFifN'],
-                         cmds._run('getprivatekeys', (['bc1q3g5tmkmlvxryhh843v4dz026avatc0zzr6h3af', 'bc1q9pzjpjq4nqx5ycnywekcmycqz0wjp2nq604y2n'], ), wallet=wallet))
+                         cmds._run('getprivatekeys', (['vips1q3g5tmkmlvxryhh843v4dz026avatc0zzyck26v', 'vips1q9pzjpjq4nqx5ycnywekcmycqz0wjp2nqad5ldk'], ), wallet=wallet))
 
 
 class TestCommandsTestnet(TestCaseForTestnet):

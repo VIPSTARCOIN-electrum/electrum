@@ -53,7 +53,7 @@ Builder.load_string('''
                     size: '22dp', '22dp'
                     pos_hint: {'center_y': .5}
                 BlueButton:
-                    text: popup.to_addr if popup.to_addr else _('Send to address')
+                    text: popup.to_addr if popup.to_addr else _('Recipient')
                     shorten: True
                     on_release: Clock.schedule_once(lambda dt: app.show_info(_('Copy and paste the recipient address using the Paste button, or use the camera to scan a QR code.')))
             CardSeparator:
@@ -150,8 +150,8 @@ class SendTokenDialog(Factory.Popup):
         self.contract_addr = token.contract_addr
         self.balance = token.balance
         self.max_amount = "{}".format(token.balance / 10 ** token.decimals)
-        self.to_addr = ''
-        self.amount = ''
+        self.to_addr = str()
+        self.amount = str()
         self.gas_limit = '250000'
         self.gas_price = '0.00000040'
         self.is_pr = False
@@ -195,11 +195,11 @@ class SendTokenDialog(Factory.Popup):
         to_addr = uri.get('to_addr', '')
         amount = uri.get('amount', '')
         if not self.match_token(address):
-            self.app.show_error(_("token doesn't mutch"))
+            self.app.show_error(_("Token doesn't mutch"))
             return
         self.amount = self.app.format_token_amount_and_units(amount, self.decimals, self.symbol)if amount else ''
         if not is_p2pkh(to_addr):
-            self.app.show_error(_("send to address is miss."))
+            self.app.show_error(_("Recipient address is miss"))
         else:
             self.to_addr = to_addr
 

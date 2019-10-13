@@ -294,7 +294,7 @@ class Abstract_Wallet(AddressSynchronizer):
             addr = str(addrs[0])
             if not bitcoin.is_address(addr):
                 neutered_addr = addr[:5] + '..' + addr[-2:]
-                raise WalletFileException(f'The addresses in this wallet are not bitcoin addresses.\n'
+                raise WalletFileException(f'The addresses in this wallet are not vipstarcoin addresses.\n'
                                           f'e.g. {neutered_addr} (length: {len(addr)})')
 
     def calc_unused_change_addresses(self):
@@ -961,7 +961,7 @@ class Abstract_Wallet(AddressSynchronizer):
         for i, o in enumerate(outputs):
             if o.type == TYPE_ADDRESS:
                 if not is_address(o.address):
-                    raise Exception("Invalid bitcoin address: {}".format(o.address))
+                    raise Exception("Invalid vipstarcoin address: {}".format(o.address))
             if o.value == '!':
                 if i_max is not None:
                     raise Exception("More than one output set to spend max")
@@ -1270,21 +1270,11 @@ class Abstract_Wallet(AddressSynchronizer):
     def add_input_sig_info(self, txin, address):
         raise NotImplementedError()  # implemented by subclasses
 
-    def add_input_info(self, txin, check_p2pk=False):
+    def add_input_info(self, txin):
         address = self.get_txin_address(txin)
         if self.is_mine(address):
             txin['address'] = address
-            txin_type = self.get_txin_type(address)
-            if check_p2pk and txin_type == 'p2pkh':
-                prevout_tx = self.transactions.get(txin['prevout_hash'])
-                if not prevout_tx:
-                    return
-                prevout_n = txin['prevout_n']
-                t = prevout_tx.outputs()[prevout_n].type
-                if t == TYPE_PUBKEY:
-                    txin_type = 'p2pk'
-            txin['type'] = txin_type
-
+            txin['type'] = self.get_txin_type(address)
             # segwit needs value to sign
             if txin.get('value') is None:
                 received, spent = self.get_addr_io(address)
@@ -1670,7 +1660,7 @@ class Abstract_Wallet(AddressSynchronizer):
         return None
 
     def price_at_timestamp(self, txid, price_func):
-        """Returns fiat price of bitcoin at the time tx got confirmed."""
+        """Returns fiat price of vipstarcoin at the time tx got confirmed."""
         timestamp = self.get_tx_height(txid).timestamp
         return price_func(timestamp if timestamp else time.time())
 
@@ -1919,17 +1909,15 @@ class Imported_Wallet(Simple_Wallet):
         return redeem_script
 
     def get_txin_type(self, address):
-        # this cannot tell p2pkh and p2pk
         return self.db.get_imported_address(address).get('type', 'address')
 
     def add_input_sig_info(self, txin, address):
         if self.is_watching_only():
-            addrtype, hash160_ = b58_address_to_hash160(address)
             x_pubkey = 'fd' + address_to_script(address)
             txin['x_pubkeys'] = [x_pubkey]
             txin['signatures'] = [None]
             return
-        if txin['type'] in ['p2pkh', 'p2wpkh', 'p2wpkh-p2sh', 'p2pk']:
+        if txin['type'] in ['p2pkh', 'p2wpkh', 'p2wpkh-p2sh']:
             pubkey = self.db.get_imported_address(address)['pubkey']
             txin['num_sig'] = 1
             txin['x_pubkeys'] = [pubkey]
