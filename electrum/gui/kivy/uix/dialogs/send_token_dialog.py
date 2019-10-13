@@ -150,8 +150,8 @@ class SendTokenDialog(Factory.Popup):
         self.contract_addr = token.contract_addr
         self.balance = token.balance
         self.max_amount = "{}".format(token.balance / 10 ** token.decimals)
-        self.to_addr = ''
-        self.amount = ''
+        self.to_addr = str()
+        self.amount = str()
         self.gas_limit = '250000'
         self.gas_price = '0.00000040'
         self.is_pr = False

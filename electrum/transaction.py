@@ -1005,22 +1005,6 @@ class Transaction:
         if outputs:
             self._outputs.sort(key = lambda o: (o.value, self.pay_script(o.type, o.address)))
 
-    def vipstarcoin_sort(self, sender):
-        if not sender:
-            return
-        sender_inp = None
-        for i in range(len(self._inputs)):
-            inp = self._inputs[i]
-            if inp['address'] == sender:
-                sender_inp = inp
-                del self._inputs[i]
-                break
-        if sender_inp:
-            self._inputs.insert(0, sender_inp)
-        else:
-            print_error('vipstarcoin_sort', self._inputs)
-            raise Exception('vipstarcoin_sort - sender address not in inputs')
-
     @classmethod
     def serialize_output(cls, output: TxOutput) -> str:
         # VIPSTARCOIN (by Qtum)
@@ -1028,7 +1012,7 @@ class Transaction:
         if output_type == TYPE_STAKE:
             output_type = TYPE_SCRIPT
         s = int_to_hex(output.value, 8)
-        script = cls.pay_script(output_type, addr=output.address)
+        script = cls.pay_script(output_type, output.address)
         s += var_int(len(script)//2)
         s += script
         return s

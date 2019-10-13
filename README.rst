@@ -10,24 +10,18 @@ Electrum for VIPSTARCOIN - Lightweight VIPSTARCOIN client
   Homepage: https://electrum-vips.info/
 
 
-.. image:: https://travis-ci.org/VIPSTARCOIN-electrum/electrum-vips.svg?branch=master
+.. image:: https://travis-ci.org/VIPSTARCOIN-electrum/electrum-vips.svg?branch=master-3.3.x
     :target: https://travis-ci.org/VIPSTARCOIN-electrum/electrum-vips
     :alt: Build Status
-.. image:: https://coveralls.io/repos/github/spesmilo/electrum/badge.svg?branch=master
-    :target: https://coveralls.io/github/spesmilo/electrum?branch=master
+.. image:: https://coveralls.io/repos/github/VIPSTARCOIN-electrum/electrum-vips/badge.svg?branch=master-3.3.x
+    :target: https://coveralls.io/github/VIPSTARCOIN-electrum/electrum-vips?branch=master-3.3.x
     :alt: Test coverage statistics
-.. image:: https://d322cqt584bo4o.cloudfront.net/electrum/localized.svg
-    :target: https://crowdin.com/project/electrum
-    :alt: Help translate Electrum online
-
-
-
 
 
 Getting started
 ===============
 
-Electrum is a pure python application. If you want to use the
+Electrum for VIPSTARCOIN is a pure python application. If you want to use the
 Qt interface, install the Qt dependencies::
 
     sudo apt-get install python3-pyqt5
