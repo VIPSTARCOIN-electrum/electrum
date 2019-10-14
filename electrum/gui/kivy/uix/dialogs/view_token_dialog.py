@@ -63,6 +63,30 @@ Builder.load_string('''
             size_hint: 1, None
             height: '48dp'
             Button:
+                size_hint: 0.5, None
+                height: '48dp'
+                text: _('Send Token')
+                on_release: 
+                    root.do_send()
+                    root.dismiss()
+            Button:
+                size_hint: 0.5, None
+                height: '48dp'
+                text: _('Receive Token')
+                on_release: 
+                    root.do_receive()
+                    root.dismiss()
+            Button:
+                size_hint: 0.5, None
+                height: '48dp'
+                text: _('Delete Token')
+                on_release: 
+                    root.do_delete()
+                    root.dismiss()
+        BoxLayout:
+            size_hint: 1, None
+            height: '48dp'
+            Button:
                 id: action_button
                 size_hint: 0.5, None
                 height: '48dp'
@@ -71,12 +95,13 @@ Builder.load_string('''
                 opacity: 0
                 on_release: root.on_action_button_clicked()
             Button:
+                id: action_button
                 size_hint: 0.5, None
                 height: '48dp'
-                text: _('Delete Token')
-                on_release: 
-                    root.do_delete()
-                    root.dismiss()
+                text: ''
+                disabled: True
+                opacity: 0
+                on_release: root.on_action_button_clicked()
             Button:
                 size_hint: 0.5, None
                 height: '48dp'
@@ -91,6 +116,7 @@ class ViewTokenDialog(Factory.Popup):
         Factory.Popup.__init__(self)
         self.app = app
         self.wallet = self.app.wallet
+        self.token = token
         self.name = token.name
         self.symbol = token.symbol
         self.decimals = token.decimals
@@ -106,6 +132,12 @@ class ViewTokenDialog(Factory.Popup):
         format_amount = self.app.format_token_amount_and_units
         balance = self.balance
         self.balance_str = format_amount(balance, self.decimals, self.symbol)
+
+    def do_send(self):
+        self.app.send_token_dialog(self.token)
+
+    def do_receive(self):
+        self.app.receive_token_dialog(self.token)
 
     def do_delete(self):
         from .question import Question

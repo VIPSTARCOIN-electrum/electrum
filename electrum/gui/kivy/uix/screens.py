@@ -537,7 +537,6 @@ class TokensScreen(CScreen):
     def __init__(self, **kwargs):
         self.ra_dialog = None
         super(TokensScreen, self).__init__(**kwargs)
-        self.menu_actions = [ ('Send Token', self.send_token), ('Receive Token', self.receive_token), ('Token Info', self.show_token)]
 
     def token_enabled(self):
         from electrum import bitcoin, constants
@@ -548,15 +547,7 @@ class TokensScreen(CScreen):
             addr_type = constants.net.SEGWIT_HRP
         return addr_type == constants.net.ADDRTYPE_P2PKH
 
-    def send_token(self, obj):
-        token = obj.token
-        self.app.send_token_dialog(token)
-
-    def receive_token(self, obj):
-        token = obj.token
-        self.app.receive_token_dialog(token)
-
-    def show_token(self, obj):
+    def show_item(self, obj):
         token = obj.token
         self.app.view_token_dialog(token)
 
@@ -591,9 +582,8 @@ class TokenHistoryScreen(CScreen):
     def __init__(self, **kwargs):
         self.ra_dialog = None
         super(TokenHistoryScreen, self).__init__(**kwargs)
-        self.menu_actions = [ ('Details', self.show_token_tx)]
 
-    def show_token_tx(self, obj):
+    def show_item(self, obj):
         tx_hash = obj.tx_hash
         tx = self.app.wallet.db.get_token_tx(tx_hash)
         if not tx:
