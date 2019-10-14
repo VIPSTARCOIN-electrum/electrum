@@ -1000,9 +1000,13 @@ class Abstract_Wallet(AddressSynchronizer):
 
         # Fee estimator
         if fixed_fee is None:
-            fee_estimator = lambda size: self.config.estimate_fee(size) + gas_fee
-        else:
+            fee_estimator = config.estimate_fee
+        elif isinstance(fixed_fee, Number):
             fee_estimator = lambda size: fixed_fee
+        elif callable(fixed_fee):
+            fee_estimator = fixed_fee
+        else:
+            raise Exception('Invalid argument fixed_fee: %s' % fixed_fee)
 
         if i_max is None:
             # Let the coin chooser select the coins to spend
@@ -1038,14 +1042,19 @@ class Abstract_Wallet(AddressSynchronizer):
             # change address. if empty, coin_chooser will set it
             change_addrs = self.get_change_addresses_for_new_transaction(change_addr or old_change_addrs)
             tx = coin_chooser.make_tx(coins, txi, outputs[:] + txo, change_addrs,
-                                      fee_estimator, self.dust_threshold(), sender)
+                                      fee_estimator, self.dust_threshold(), gas_fee, sender)
         else:
-            # FIXME?? this might spend inputs with negative effective value...
+            # "spend max" branch
+            # note: This *will* spend inputs with negative effective value (if there are any).
+            #       Given as the user is spending "max", and so might be abandoning the wallet,
+            #       try to include all UTXOs, otherwise leftover might remain in the UTXO set
+            #       forever. see #5433
+            # note: Actually it might be the case that not all UTXOs from the wallet are
+            #       being spent if the user manually selected UTXOs.
             sendable = sum(map(lambda x:x['value'], coins))
             outputs[i_max] = outputs[i_max]._replace(value=0)
             tx = Transaction.from_io(coins, outputs[:])
-            fee = fee_estimator(tx.estimated_size())
-            fee = fee + gas_fee
+            fee = fee_estimator(tx.estimated_size()) + gas_fee
             amount = sendable - tx.output_value() - fee
             if amount < 0:
                 raise NotEnoughFunds()

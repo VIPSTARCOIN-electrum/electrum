@@ -528,7 +528,9 @@ class SimpleConfig(Logger):
         return self.estimate_fee_for_feerate(fee_per_kb, size)
 
     @classmethod
-    def estimate_fee_for_feerate(cls, fee_per_kb, size):
+    def estimate_fee_for_feerate(cls, fee_per_kb: Union[int, float, Decimal],
+                                 size: Union[int, float, Decimal]) -> int:
+        size = Decimal(size)
         fee_per_kb = Decimal(fee_per_kb)
         fee_per_byte = fee_per_kb / 1000
         # to be consistent with what is displayed in the GUI,
