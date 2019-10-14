@@ -17,17 +17,21 @@
         orientation: 'vertical'
         Widget
         CardLabel:
+            color: 0.95, 0.95, 0.95, 1
             text: root.name
             font_size: '15sp'
             shorten: True
+            shorten_from: 'right'
+        Widget
         CardLabel:
             color: .699, .699, .699, 1
-            font_size: '14sp'
+            font_size: '12sp'
             shorten: True
             text: _('Bind Address') + ':' + root.bind_addr
+        Widget
         CardLabel:
             color: .699, .699, .699, 1
-            font_size: '14sp'
+            font_size: '12sp'
             shorten: True
             text: root.balance
         Widget

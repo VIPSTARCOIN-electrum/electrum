@@ -15,6 +15,8 @@
     confirmations: 0
     date: ''
     quote_text: ''
+    unit_str: ''
+    tx_hash: ''
     Image:
         id: icon
         source: root.icon
@@ -23,18 +25,31 @@
         width: self.height*1.5
         mipmap: True
     BoxLayout:
+        spacing: '8dp'
+        height: '32dp'
         orientation: 'vertical'
         Widget
         CardLabel:
-            text:
-                u'[color={color}]{s}[/color]'.format(s='<<' if root.is_mine else '>>', color=root.amount_color)\
-                + ' ' + root.action + ' ' + (root.quote_text if app.is_fiat else root.amount)
+            color: 0.95, 0.95, 0.95, 1
+            text: root.tx_hash
+            shorten: True
+            shorten_from: 'right'
             font_size: '15sp'
+        Widget
         CardLabel:
-            color: .699, .699, .699, 1
-            font_size: '14sp'
+            font_size: '12sp'
             shorten: True
             text: root.date
+        Widget
+    BoxLayout:
+        spacing: '8dp'
+        height: '32dp'
+        orientation: 'vertical'
+        Widget
+        CardLabel:
+            text: u'[color={color}]{s}[/color]'.format(s=root.amount, color=root.amount_color) + ' ' + '[size=12sp]' + root.unit_str + '[/size]'
+            halign: 'right'
+            font_size: '15sp'
         Widget
 
 <TokenHistoryRecycleView>:

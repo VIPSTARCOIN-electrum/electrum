@@ -602,11 +602,11 @@ class TokenHistoryScreen(CScreen):
         ri['token'] = token
         ri['from_addr'] = from_addr
         ri['to_addr'] = to_addr
+        ri['unit_str'] = token.symbol
         if value is not None:
             ri['is_mine'] = value < 0
             ri['value'] = value
-            if value < 0: value = - value
-            ri['amount'] = self.app.format_token_amount_and_units(value, token.decimals, token.symbol)
+            ri['amount'] = self.app.format_token_amount(value, token.decimals, is_diff=True)
         return ri
 
     def update(self, see_all=False):
