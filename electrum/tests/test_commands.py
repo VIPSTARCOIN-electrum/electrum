@@ -120,7 +120,7 @@ class TestCommands(ElectrumTestCase):
         with self.assertRaises(Exception):
             cmds._run('getprivatekeys', ("vips1qgfam82qk7uwh5j2xxmcd8cmklpe0zackrsmcd5",), wallet=wallet)  # not in wallet
         self.assertEqual("p2wpkh:L15oxP24NMNAXxq5r2aom24pHPtt3Fet8ZutgL155Bad93GSubM2",
-                         cmds._run('getprivatekeys', ("vips1q2ccr34wzep58d4239tl3x3734ttle92aqjzqmt",), wallet=wallet))
+                         cmds._run('getprivatekeys', ("vips1q3g5tmkmlvxryhh843v4dz026avatc0zzyck26v",), wallet=wallet))
         # list of addresses tests
         with self.assertRaises(Exception):
             cmds._run('getprivatekeys', (['vips1q3g5tmkmlvxryhh843v4dz026avatc0zzyck26v', 'asd'],), wallet=wallet)
