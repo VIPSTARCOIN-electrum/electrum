@@ -262,7 +262,7 @@ class CoinChooserBase(Logger):
         return total_weight
 
     def make_tx(self, coins, inputs, outputs, change_addrs, fee_estimator_vb,
-                dust_threshold, sender=None):
+                dust_threshold, gas_fee=0, sender=None):
         """Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
         the transaction) it is kept, otherwise none is sent and it is
@@ -292,7 +292,7 @@ class CoinChooserBase(Logger):
         spent_amount = base_tx.output_value()
 
         def fee_estimator_w(weight):
-            return fee_estimator_vb(Transaction.virtual_size_from_weight(weight))
+            return fee_estimator_vb(Transaction.virtual_size_from_weight(weight)) + gas_fee
 
         def sufficient_funds(buckets, *, bucket_value_sum):
             '''Given a list of buckets, return True if it has enough
@@ -464,7 +464,7 @@ class CoinChooserPrivacy(CoinChooserRandom):
 class CoinChooserVIPSTARCOIN(CoinChooserPrivacy):
 
     def make_tx(self, coins, inputs: list, outputs, change_addrs, fee_estimator_vb,
-                dust_threshold, sender=None):
+                dust_threshold, gas_fee=0, sender=None):
         if sender is not None:
             found = False
             for coin in coins:
@@ -474,7 +474,7 @@ class CoinChooserVIPSTARCOIN(CoinChooserPrivacy):
                     break
             if not found:
                 raise Exception(_('Sender address has no UTXO, you must to send 0.2 VIPS or more to Sender address.'))
-        return super().make_tx(coins, inputs, outputs, change_addrs, fee_estimator_vb, dust_threshold, sender)
+        return super().make_tx(coins, inputs, outputs, change_addrs, fee_estimator_vb, dust_threshold, gas_fee, sender)
 
 
 COIN_CHOOSERS = {
