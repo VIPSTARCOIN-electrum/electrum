@@ -2214,7 +2214,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.token_hist_model.set_view(self.token_hist_list)
         thl.searchable_list = thl
         splitter = QSplitter(self)
-        splitter.addWidget(tbl)
+        splitter.addWidget(self.create_list_tab(tbl))
         splitter.addWidget(self.create_list_tab(thl))
         splitter.setOrientation(Qt.Vertical)
         return splitter
