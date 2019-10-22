@@ -857,7 +857,7 @@ class Abstract_Wallet(AddressSynchronizer):
             elif tx.inputs()[0]['type'] == 'coinbase':
                 return 'coinbase'
         except (BaseException,) as e:
-            _logger.info('get_default_label', e, TYPE_STAKE)
+            _logger.info(f'get_default_label {e}, {TYPE_STAKE}')
         return ''
 
     def get_tx_status(self, tx_hash, tx_mined_info: TxMinedInfo):
@@ -1000,7 +1000,7 @@ class Abstract_Wallet(AddressSynchronizer):
 
         # Fee estimator
         if fixed_fee is None:
-            fee_estimator = config.estimate_fee
+            fee_estimator = self.config.estimate_fee
         elif isinstance(fixed_fee, Number):
             fee_estimator = lambda size: fixed_fee
         elif callable(fixed_fee):

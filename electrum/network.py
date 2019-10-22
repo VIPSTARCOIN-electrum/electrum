@@ -1328,21 +1328,31 @@ class Network(Logger):
                 await group.spawn(get_response(server))
         return responses
 
+    @best_effort_reliable
+    @catch_server_exceptions
     async def get_transactions_receipt(self, tx_hash):
         return await self.interface.session.send_request('blochchain.transaction.get_receipt', [tx_hash])
 
+    @best_effort_reliable
+    @catch_server_exceptions
     async def get_token_info(self, contract_addr):
         return await self.interface.session.send_request('blockchain.token.get_info', [contract_addr, ])
 
+    @best_effort_reliable
+    @catch_server_exceptions
     async def call_contract(self, address, data, sender):
         return await self.interface.session.send_request('blockchain.contract.call', [address, data, sender])
 
+    @best_effort_reliable
+    @catch_server_exceptions
     async def request_token_balance(self, bind_addr, contract_addr):
         __, hash160 = b58_address_to_hash160(bind_addr)
         hash160 = bh2u(hash160)
         datahex = '70a08231{}'.format(hash160.zfill(64))
         return await self.interface.session.send_request('blockchain.contract.call', [contract_addr, datahex, '', 'int'])
 
+    @best_effort_reliable
+    @catch_server_exceptions
     async def request_token_history(self, bind_addr, contract_addr):
         __, hash160 = b58_address_to_hash160(bind_addr)
         hash160 = bh2u(hash160)
