@@ -1020,7 +1020,7 @@ class TestWalletSending(TestCaseForTestnet):
         wallet.receive_tx_callback(funding_txid, funding_tx, TX_HEIGHT_UNCONFIRMED)
 
         # create tx
-        outputs = [TxOutput(bitcoin.TYPE_ADDRESS, 'tb1q7rl9cxr85962ztnsze089zs8ycv52hk43f3m9n', '!')]
+        outputs = [TxOutput(bitcoin.TYPE_ADDRESS, 'tvips1q7rl9cxr85962ztnsze089zs8ycv52hk4ykevnl', '!')]
         coins = wallet.get_spendable_coins(domain=None)
         tx = wallet.make_unsigned_transaction(coins, outputs, fixed_fee=5000)
         tx.set_rbf(True)
