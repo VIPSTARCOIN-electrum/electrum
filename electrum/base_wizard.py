@@ -33,6 +33,7 @@ from typing import List, TYPE_CHECKING, Tuple, NamedTuple, Any, Dict, Optional
 from . import bitcoin
 from . import keystore
 from . import mnemonic
+from . import constants
 from .bip32 import is_bip32_derivation, xpub_type, normalize_bip32_derivation
 from .keystore import bip44_derivation, purpose48_derivation
 from .wallet import (Imported_Wallet, Standard_Wallet, Multisig_Wallet,
@@ -130,6 +131,7 @@ class BaseWizard(Logger):
         wallet_kinds = [
             ('standard',  _("Standard wallet")),
 #            ('2fa', _("Wallet with two-factor authentication")),
+            ('qtcore', _("Bitcoin Qt Core wallet compatible")),
             ('multisig',  _("Multi-signature wallet")),
             ('imported',  _("Import Bitcoin addresses or private keys")),
         ]
@@ -158,7 +160,9 @@ class BaseWizard(Logger):
 
     def on_wallet_type(self, choice):
         self.data['wallet_type'] = self.wallet_type = choice
-        if choice == 'standard':
+        if choice == 'qtcore':
+            action = 'restore_from_key'
+        elif choice == 'standard':
             action = 'choose_keystore'
         elif choice == 'multisig':
             action = 'choose_multisig'
@@ -178,10 +182,15 @@ class BaseWizard(Logger):
         self.multisig_dialog(run_next=on_multisig)
 
     def choose_keystore(self):
-        assert self.wallet_type in ['standard', 'multisig']
+        assert self.wallet_type in ['standard', 'multisig', 'qtcore']
         i = len(self.keystores)
         title = _('Add cosigner') + ' (%d of %d)'%(i+1, self.n) if self.wallet_type=='multisig' else _('Keystore')
-        if self.wallet_type =='standard' or i==0:
+        if self.wallet_type == 'qtcore':
+            message = _('Do you want to create a new seed, or to restore a wallet using an existing seed?')
+            choices = [
+                ('restore_from_key', _('Use a master key')),
+            ]
+        elif self.wallet_type =='standard' or i==0:
             message = _('Do you want to create a new seed, or to restore a wallet using an existing seed?')
             choices = [
                 ('choose_seed_type', _('Create a new seed')),
@@ -482,6 +491,9 @@ class BaseWizard(Logger):
         self.on_keystore(k)
 
     def on_keystore(self, k):
+        if self.wallet_type == 'qtcore':
+            self.keystores.append(k)
+            self.run('create_wallet')
         has_xpub = isinstance(k, keystore.Xpub)
         if has_xpub:
             t1 = xpub_type(k.xpub)
@@ -522,7 +534,10 @@ class BaseWizard(Logger):
         encrypt_keystore = any(k.may_have_password() for k in self.keystores)
         # note: the following condition ("if") is duplicated logic from
         # wallet.get_available_storage_encryption_version()
-        if self.wallet_type == 'standard' and isinstance(self.keystores[0], keystore.Hardware_KeyStore):
+
+        if self.wallet_type == 'qtcore':
+            self.on_password(None, encrypt_storage=False, encrypt_keystore=False)
+        elif self.wallet_type == 'standard' and isinstance(self.keystores[0], keystore.Hardware_KeyStore):
             # offer encrypting with a pw derived from the hw device
             k = self.keystores[0]
             try:
@@ -558,7 +573,12 @@ class BaseWizard(Logger):
         for k in self.keystores:
             if k.may_have_password():
                 k.update_password(None, password)
-        if self.wallet_type == 'standard':
+
+        if self.wallet_type == 'qtcore':
+            self.data['seed_type'] = self.seed_type
+            keys = self.keystores[0].dump()
+            self.data['keystore'] = keys
+        elif self.wallet_type == 'standard':
             self.data['seed_type'] = self.seed_type
             keys = self.keystores[0].dump()
             self.data['keystore'] = keys

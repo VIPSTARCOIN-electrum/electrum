@@ -57,14 +57,13 @@ class SmartContractList(MyTreeView):
             if not idx.isValid():
                 return
             col = idx.column()
-            item = self.model().itemFromIndex(idx)
             column_title = self.model().horizontalHeaderItem(col).text()
             copy_text = self.model().itemFromIndex(idx).text()
             menu.addAction(_("Copy {}").format(column_title), lambda: self.place_text_on_clipboard(copy_text))
             menu.addAction(_("Edit"), lambda: self.parent.contract_edit_dialog(address))
             menu.addAction(_("Function"), lambda: self.parent.contract_func_dialog(address))
             menu.addAction(_("Delete"), lambda: self.parent.delete_samart_contact(address))
-            URL = block_explorer_URL(self.config, {'token': address})
+            URL = block_explorer_URL(self.config, token=address)
             if URL:
                 menu.addAction(_("View on block explorer"), lambda: webopen(URL))
         menu.exec_(self.viewport().mapToGlobal(position))
@@ -78,8 +77,8 @@ class SmartContractList(MyTreeView):
             self.Columns.ADDRESS: _('Address'),
         }
         self.update_headers(headers)
-        for address in sorted(self.parent.smart_contracts.keys()):
-            name, abi = self.parent.smart_contracts[address]
+        for address in sorted(self.parent.wallet.db.smart_contracts.keys()):
+            name, abi = self.parent.wallet.db.smart_contracts[address]
             labels = [name, address]
             item = [QStandardItem(e) for e in labels]
             item[self.Columns.NAME].setData(address, Qt.UserRole)
@@ -91,12 +90,10 @@ class SmartContractList(MyTreeView):
         self.set_current_idx(set_current)
         self.filter()
 
-
     def place_text_on_clipboard(self, text):
         if is_address(text):
             try:
-                self.wallet = self.parent.wallet
-                self.wallet.check_address(text)
+                self.parent.wallet.check_address(text)
             except InternalAddressCorruption as e:
                 self.parent.show_error(str(e))
                 raise

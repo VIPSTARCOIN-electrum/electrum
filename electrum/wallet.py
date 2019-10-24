@@ -31,9 +31,7 @@ import os
 import sys
 import random
 import time
-import json
 import copy
-import errno
 import traceback
 import binascii
 from functools import partial
@@ -47,12 +45,13 @@ from .util import (NotEnoughFunds, UserCancelled, profiler,
                    WalletFileException, BitcoinException,
                    InvalidPassword, format_time, timestamp_to_datetime, Satoshis,
                    Fiat, bfh, bh2u, TxMinedInfo, quantize_feerate)
-from .bitcoin import (COIN, COINBASE_MATURITY, RECOMMEND_CONFIRMATIONS, TYPE_ADDRESS, TYPE_STAKE, is_address, address_to_script,
-                      b58_address_to_hash160, hash160_to_p2pkh, is_minikey, relayfee, dust_threshold)
+from .bitcoin import (COIN, TYPE_ADDRESS, TYPE_PUBKEY, TYPE_STAKE, is_address, address_to_script,
+                      is_minikey, relayfee, dust_threshold, COINBASE_MATURITY, RECOMMEND_CONFIRMATIONS,
+                      b58_address_to_hash160, hash160_to_p2pkh)
 from .blockchain import TOKEN_TRANSFER_TOPIC
 from .crypto import sha256d
 from . import keystore
-from .keystore import load_keystore, Hardware_KeyStore
+from .keystore import load_keystore, Hardware_KeyStore, Qt_Core_Keystore
 from .util import multisig_type
 from .storage import STO_EV_PLAINTEXT, STO_EV_USER_PW, STO_EV_XPUB_PW, WalletStorage
 from . import transaction, bitcoin, coinchooser, paymentrequest, ecc, bip32
@@ -67,7 +66,6 @@ from .interface import RequestTimedOut
 from .ecc_fast import is_using_fast_ecc
 from .mnemonic import Mnemonic
 from .logging import get_logger
-from .smart_contracts import SmartContracts
 
 if TYPE_CHECKING:
     from .network import Network
@@ -235,8 +233,6 @@ class Abstract_Wallet(AddressSynchronizer):
         # invoices and contacts
         self.invoices = InvoiceStore(self.storage)
         self.contacts = Contacts(self.storage)
-        self.smart_contracts = SmartContracts(self.storage)
-
         self._coin_price_cache = {}
 
     def stop_threads(self):
@@ -599,71 +595,6 @@ class Abstract_Wallet(AddressSynchronizer):
             'summary': summary
         }
 
-    @profiler
-    def get_full_token_history(self, contract_addr=None, bind_addr=None, from_timestamp=None, to_timestamp=None):
-        h = []
-        keys = []
-        for token_key in self.db.list_tokens():
-            if contract_addr and contract_addr in token_key \
-                    or bind_addr and bind_addr in token_key \
-                    or not bind_addr and not contract_addr:
-                keys.append(token_key)
-        for key in keys:
-            contract_addr, bind_addr = key.split('_')
-            for txid, height, log_index in self.db.get_key_token_history(key):
-                status = self.get_tx_height(txid)
-                height, conf, timestamp = status.height, status.conf, status.timestamp
-                for call_index, contract_call in enumerate(self.db.get_tx_receipt(txid)):
-                    logs = contract_call.get('log', [])
-                    if len(logs) > log_index:
-                        log = logs[log_index]
-
-                        # check contarct address
-                        if contract_addr != log.get('address', ''):
-                            self.logger.info("contract address mismatch")
-                            continue
-
-                        # check topic name
-                        topics = log.get('topics', [])
-                        if len(topics) < 3:
-                            self.logger.info("not enough topics")
-                            continue
-                        if topics[0] != TOKEN_TRANSFER_TOPIC:
-                            self.logger.info("topic mismatch")
-                            continue
-
-                        # check user bind address
-                        _, hash160b = b58_address_to_hash160(bind_addr)
-                        hash160 = bh2u(hash160b).zfill(64)
-                        if hash160 not in topics:
-                            self.logger.info("address mismatch")
-                            continue
-                        amount = int(log.get('data'), 16)
-                        from_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[1][-40:]))
-                        to_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[2][-40:]))
-                        item = {
-                            'from_addr': from_addr,
-                            'to_addr': to_addr,
-                            'bind_addr': self.db.get_token(key).bind_addr,
-                            'amount': amount,
-                            'token_key': key,
-                            'txid': txid,
-                            'height': height,
-                            'txpos_in_block': 0,
-                            'confirmations': conf,
-                            'timestamp': timestamp,
-                            'date': timestamp_to_datetime(timestamp),
-                            'call_index': call_index,
-                            'log_index': log_index,
-                        }
-                        h.append(item)
-                    else:
-                        continue
-        return {
-            'transactions': h
-        }
-
-
     def default_fiat_value(self, tx_hash, fx, value_sat):
         return value_sat / Decimal(COIN) * self.price_at_timestamp(tx_hash, fx.timestamp_rate)
 
@@ -706,11 +637,14 @@ class Abstract_Wallet(AddressSynchronizer):
         try:
             tx = self.db.get_transaction(tx_hash)
             if tx.outputs()[0].type == TYPE_STAKE:
+                is_relevant, is_mine, delta, fee = self.get_wallet_delta(tx)
+                if delta and 0 < delta < 4 * 10 ** 7:
+                    return _('contract gas refund')
                 return _('stake mined')
             elif tx.inputs()[0]['type'] == 'coinbase':
                 return 'coinbase'
         except (BaseException,) as e:
-            _logger.info('get_default_label', e, TYPE_STAKE)
+            _logger.info(f'get_default_label {e}, {TYPE_STAKE}')
         return ''
 
     def get_tx_status(self, tx_hash, tx_mined_info: TxMinedInfo):
@@ -722,15 +656,14 @@ class Abstract_Wallet(AddressSynchronizer):
         is_mined = False
         is_staked = False
         tx = None
-        tx = self.db.get_transaction(tx_hash)
-        if tx:
-            is_mined = tx.inputs()[0]['type'] == 'coinbase'
-            is_staked = tx.outputs()[0].type == TYPE_STAKE
-        else:
-            tx = self.db.get_token_tx(tx_hash)
-
+        try:
+            tx = self.db.get_transaction(tx_hash) or self.db.get_token_tx(tx_hash)
+            if tx is not None:
+                is_mined = tx.inputs()[0]['type'] == 'coinbase'
+                is_staked = tx.outputs()[0].type == TYPE_STAKE
+        except (BaseException,) as e:
+            self.logger.info(f'get_tx_status {str(e)}')
         if conf == 0:
-            tx = self.db.get_transaction(tx_hash)
             if not tx:
                 return 2, 'unknown'
             is_final = tx and tx.is_final()
@@ -829,7 +762,7 @@ class Abstract_Wallet(AddressSynchronizer):
         return change_addrs[:max_change]
 
     def make_unsigned_transaction(self, coins, outputs, config, fixed_fee=None,
-                                  change_addr=None, is_sweep=False, gas_fee=0, sender=None):
+                                  change_addr=None, gas_fee=0, sender=None, is_sweep=False):
         # check outputs
         i_max = None
         for i, o in enumerate(outputs):
@@ -849,7 +782,7 @@ class Abstract_Wallet(AddressSynchronizer):
 
         # Fee estimator
         if fixed_fee is None:
-            fee_estimator = config.estimate_fee
+            fee_estimator = lambda size: self.config.estimate_fee(size) + gas_fee
         elif isinstance(fixed_fee, Number):
             fee_estimator = lambda size: fixed_fee
         elif callable(fixed_fee):
@@ -891,7 +824,7 @@ class Abstract_Wallet(AddressSynchronizer):
             # change address. if empty, coin_chooser will set it
             change_addrs = self.get_change_addresses_for_new_transaction(change_addr or old_change_addrs)
             tx = coin_chooser.make_tx(coins, txi, outputs[:] + txo, change_addrs,
-                                      fee_estimator, self.dust_threshold(), gas_fee, sender)
+                                      fee_estimator, self.dust_threshold(), sender)
         else:
             # "spend max" branch
             # note: This *will* spend inputs with negative effective value (if there are any).
@@ -910,6 +843,8 @@ class Abstract_Wallet(AddressSynchronizer):
             outputs[i_max] = outputs[i_max]._replace(value=amount)
             tx = Transaction.from_io(coins, outputs[:])
 
+        # sender sort to make sure sender txi the first place
+        tx.sender_sort(sender)
         # Timelock tx to current height.
         tx.locktime = get_locktime_for_new_transaction(self.network)
         run_hook('make_unsigned_transaction', self, tx)
@@ -1563,6 +1498,67 @@ class Abstract_Wallet(AddressSynchronizer):
     def is_watching_only(self) -> bool:
         raise NotImplementedError()
 
+    @profiler
+    def get_full_token_history(self, contract_addr=None, bind_addr=None) -> list:
+        hist = []
+        keys = []
+        for token_key in self.db.list_tokens():
+            if contract_addr and contract_addr in token_key \
+                    or bind_addr and bind_addr in token_key \
+                    or not bind_addr and not contract_addr:
+                keys.append(token_key)
+        for key in keys:
+            contract_addr, bind_addr = key.split('_')
+            for txid, height, log_index in self.db.get_token_history(key):
+                status = self.get_tx_height(txid)
+                height, conf, timestamp = status.height, status.conf, status.timestamp
+                for call_index, contract_call in enumerate(self.db.get_tx_receipt(txid)):
+                    logs = contract_call.get('log', [])
+                    if len(logs) > log_index:
+                        log = logs[log_index]
+
+                        # check contarct address
+                        if contract_addr != log.get('address', ''):
+                            self.logger.info("contract address mismatch")
+                            continue
+
+                        # check topic name
+                        topics = log.get('topics', [])
+                        if len(topics) < 3:
+                            self.logger.info("not enough topics")
+                            continue
+                        if topics[0] != TOKEN_TRANSFER_TOPIC:
+                            self.logger.info("topic mismatch")
+                            continue
+
+                        # check user bind address
+                        _, hash160b = b58_address_to_hash160(bind_addr)
+                        hash160 = bh2u(hash160b).zfill(64)
+                        if hash160 not in topics:
+                            self.logger.info("address mismatch")
+                            continue
+                        amount = int(log.get('data'), 16)
+                        from_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[1][-40:]))
+                        to_addr = hash160_to_p2pkh(binascii.a2b_hex(topics[2][-40:]))
+                        item = {
+                            'from_addr': from_addr,
+                            'to_addr': to_addr,
+                            'bind_addr': self.db.get_token(key).bind_addr,
+                            'amount': amount,
+                            'token_key': key,
+                            'txid': txid,
+                            'height': height,
+                            'txpos_in_block': 0,
+                            'confirmations': conf,
+                            'timestamp': timestamp,
+                            'date': timestamp_to_datetime(timestamp),
+                            'call_index': call_index,
+                            'log_index': log_index,
+                        }
+                        hist.append(item)
+                    else:
+                        continue
+        return hist
 
 class Simple_Wallet(Abstract_Wallet):
     # wallet with a single keystore
@@ -1976,6 +1972,25 @@ class Standard_Wallet(Simple_Deterministic_Wallet):
         return bitcoin.pubkey_to_address(self.txin_type, pubkey)
 
 
+class Qt_Core_Wallet(Simple_Deterministic_Wallet):
+    wallet_type = 'qtcore'
+
+    def __init__(self, storage):
+        Simple_Deterministic_Wallet.__init__(self, storage)
+        self.gap_limit = 100
+        self.gap_limit_for_change = 0
+        self.use_change = False
+
+    def synchronize(self):
+        # don't create change addres
+        # since core wallet doesn't distinguish address type from derivation path
+        with self.lock:
+            self.synchronize_sequence(False)
+
+    def pubkeys_to_address(self, pubkey):
+        return bitcoin.pubkey_to_address(self.txin_type, pubkey)
+
+
 class Multisig_Wallet(Deterministic_Wallet):
     # generic m of n
     gap_limit = 20
@@ -2078,7 +2093,7 @@ class Multisig_Wallet(Deterministic_Wallet):
         txin['num_sig'] = self.m
 
 
-wallet_types = ['standard', 'multisig', 'imported']
+wallet_types = ['standard', 'multisig', 'imported', 'qtcore']
 
 def register_wallet_type(category):
     wallet_types.append(category)
@@ -2087,7 +2102,8 @@ wallet_constructors = {
     'standard': Standard_Wallet,
     'old': Standard_Wallet,
     'xpub': Standard_Wallet,
-    'imported': Imported_Wallet
+    'imported': Imported_Wallet,
+    'qtcore': Qt_Core_Wallet
 }
 
 def register_constructor(wallet_type, constructor):

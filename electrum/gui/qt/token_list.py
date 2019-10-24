@@ -6,26 +6,23 @@ __author__ = 'CodeFace'
 """
 
 import datetime
-from datetime import date
-import binascii
 import threading
 from enum import IntEnum
 from decimal import Decimal
 
-from PyQt5.QtCore import (Qt, QPersistentModelIndex, QModelIndex, QPoint,
-                          QAbstractItemModel, QItemSelectionModel, QVariant)
+from PyQt5.QtCore import (
+    Qt, QModelIndex, QItemSelectionModel, QPersistentModelIndex, QPoint, QVariant, QAbstractItemModel)
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QFont, QBrush, QColor
-from PyQt5.QtWidgets import QAbstractItemView, QComboBox, QLabel, QHeaderView, QMenu
-
-from .history_list import HistorySortModel
+from PyQt5.QtWidgets import QAbstractItemView, QMenu, QHeaderView
 
 from electrum.bitcoin import hash160_to_p2pkh, is_address
 from electrum.i18n import _
 from electrum.util import block_explorer_URL, profiler, TxMinedInfo, OrderedDictWithIndex
 from electrum.wallet import InternalAddressCorruption
+from .util import read_QIcon, MyTreeView, AcceptFileDragDrop, TX_ICONS, MONOSPACE_FONT, webopen
 from electrum.logging import get_logger, Logger
 
-from .util import read_QIcon, MyTreeView, AcceptFileDragDrop, TX_ICONS, MONOSPACE_FONT, webopen
+from .history_list import HistorySortModel
 
 _logger = get_logger(__name__)
 
@@ -85,7 +82,7 @@ class TokenBalanceList(MyTreeView):
             contract_addr = self.model().itemFromIndex(self.selected_in_column(self.Columns.NAME)[0]).data(Qt.UserRole)
         except:
             return
-        key = '{}_{}'.format(contract_addr, bind_addr)
+        key = f'{contract_addr}_{bind_addr}'
         token = self.parent.wallet.db.get_token(key)
         self.parent.token_send_dialog(token)
 
@@ -114,7 +111,7 @@ class TokenBalanceList(MyTreeView):
             menu.addAction(_("View Info"), lambda: self.parent.token_view_dialog(token))
             menu.addAction(_("Send"), lambda: self.parent.token_send_dialog(token))
             menu.addAction(_("Delete"), lambda: self.parent.delete_token(key))
-            URL = block_explorer_URL(self.config, {'addr': bind_addr, 'token': contract_addr})
+            URL = block_explorer_URL(self.config, addr=bind_addr, token=contract_addr)
             if URL:
                 menu.addAction(_("View on block explorer"), lambda: webopen(URL))
         menu.exec_(self.viewport().mapToGlobal(position))
@@ -136,9 +133,6 @@ class TokenHistoryColumns(IntEnum):
         TOKEN = 3
         AMOUNT = 4
         SYMBOL = 5
-        TXID = 6
-        TO_ADDR = 7
-        FROM_ADDR = 8
 
 class TokenHistoryModel(QAbstractItemModel, Logger):
 
@@ -200,9 +194,6 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
                 TokenHistoryColumns.TOKEN: token.name,
                 TokenHistoryColumns.AMOUNT: balance_str,
                 TokenHistoryColumns.SYMBOL: token.symbol,
-                TokenHistoryColumns.TXID: tx_hash,
-                TokenHistoryColumns.TO_ADDR: tx_item['to_addr'],
-                TokenHistoryColumns.FROM_ADDR: tx_item['from_addr'],
             }
             return QVariant(d[col])
         if role not in (Qt.DisplayRole, Qt.EditRole):
@@ -236,12 +227,6 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
             return QVariant(a_str)
         elif col == TokenHistoryColumns.SYMBOL:
             return QVariant(token.symbol)
-        elif col == TokenHistoryColumns.TXID:
-            return QVariant(tx_hash)
-        elif col == TokenHistoryColumns.TO_ADDR:
-            return QVariant(to_addr)
-        elif col == TokenHistoryColumns.FROM_ADDR:
-            return QVariant(from_addr)
         return QVariant()
 
     def parent(self, index: QModelIndex):
@@ -249,11 +234,6 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
 
     def hasChildren(self, index: QModelIndex):
         return not index.isValid()
-
-    def update_label(self, row):
-        tx_item = self.transactions.value_from_pos(row)
-        topLeft = bottomRight = self.createIndex(row, 2)
-        self.dataChanged.emit(topLeft, bottomRight, [Qt.DisplayRole])
 
     @profiler
     def refresh(self, reason: str):
@@ -264,17 +244,18 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
         selected_row = None
         if selected:
             selected_row = selected.row()
-        r = self.parent.wallet.get_full_token_history()
         self.set_visibility_of_columns()
-        if r['transactions'] == list(self.transactions.values()):
+
+        hist = self.parent.wallet.get_full_token_history()
+        if hist == list(self.transactions.values()):
             return
         old_length = len(self.transactions)
         if old_length != 0:
             self.beginRemoveRows(QModelIndex(), 0, old_length)
             self.transactions.clear()
             self.endRemoveRows()
-        self.beginInsertRows(QModelIndex(), 0, len(r['transactions'])-1)
-        for tx_item in r['transactions']:
+        self.beginInsertRows(QModelIndex(), 0, len(hist)-1)
+        for tx_item in hist:
             txid = tx_item['bind_addr'] + "_" + tx_item['txid']
             self.transactions[txid] = tx_item
         self.endInsertRows()
@@ -289,11 +270,7 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
     def set_visibility_of_columns(self):
         def set_visible(col: int, b: bool):
             self.view.showColumn(col) if b else self.view.hideColumn(col)
-        # txid
-        set_visible(TokenHistoryColumns.TXID, False)
-        # token send addr and receive addr
-        set_visible(TokenHistoryColumns.TO_ADDR, False)
-        set_visible(TokenHistoryColumns.FROM_ADDR, False)
+        # set_visible(TokenHistoryColumns.TXID, False)
 
     def update_tx_mined_status(self, tx_hash: str, tx_mined_info: TxMinedInfo):
         try:
@@ -309,16 +286,8 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
             'date':           timestamp_to_datetime(tx_mined_info.timestamp),
         })
         topLeft = self.createIndex(row, 0)
-        bottomRight = self.createIndex(row, len(HistoryColumns) - 1)
+        bottomRight = self.createIndex(row, len(TokenHistoryColumns) - 1)
         self.dataChanged.emit(topLeft, bottomRight)
-
-    def on_fee_histogram(self):
-        for tx_hash, tx_item in list(self.transactions.items()):
-            tx_mined_info = self.tx_mined_info_from_tx_item(tx_item)
-            if tx_mined_info.conf > 0:
-                # note: we could actually break here if we wanted to rely on the order of txns in self.transactions
-                continue
-            self.update_tx_mined_status(tx_hash, tx_mined_info)
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: Qt.ItemDataRole):
         assert orientation == Qt.Horizontal
@@ -331,9 +300,6 @@ class TokenHistoryModel(QAbstractItemModel, Logger):
             TokenHistoryColumns.TOKEN: _('Token'),
             TokenHistoryColumns.AMOUNT: _('Amount'),
             TokenHistoryColumns.SYMBOL: _('Symbol'),
-            TokenHistoryColumns.TXID: 'TXID',
-            TokenHistoryColumns.TO_ADDR: 'TO_ADDR',
-            TokenHistoryColumns.FROM_ADDR: 'FROM_ADDR',
         }[section]
 
     def flags(self, idx):
@@ -411,11 +377,8 @@ class TokenHistoryList(MyTreeView):
         tx = self.wallet.db.get_token_tx(tx_hash)
         if not tx:
             return
-        tx_URL = block_explorer_URL(self.config, {'tx': tx_hash})
-        height = self.wallet.get_tx_height(tx_hash).height
+        tx_URL = block_explorer_URL(self.config, tx=tx_hash)
         token = self.wallet.db.get_token(tx_item['token_key'])
-        is_relevant, is_mine, v, fee = self.wallet.get_wallet_delta(tx)
-        is_unconfirmed = height <= 0
         menu = QMenu()
         if column is TokenHistoryColumns.AMOUNT:
             column_data = column_data.strip()

@@ -21,6 +21,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 import binascii
+from struct import Struct
 import os, sys, re, json
 from collections import defaultdict, OrderedDict
 from typing import NamedTuple, Union, TYPE_CHECKING, Tuple, Optional, Callable, Any
@@ -39,7 +40,6 @@ import builtins
 import json
 import time
 from typing import NamedTuple, Optional
-from struct import Struct
 import ssl
 
 import aiohttp
@@ -70,13 +70,15 @@ base_units = {'VIPS':8, 'mVIPS':5, 'uVIPS':2, 'boon':0}
 base_units_inverse = inv_dict(base_units)
 base_units_list = ['VIPS', 'mVIPS', 'uVIPS', 'boon']  # list(dict) does not guarantee order
 
+DECIMAL_POINT_DEFAULT = 8  # VIPS
+
 unpack_int32_from = Struct('<i').unpack_from
 unpack_int64_from = Struct('<q').unpack_from
 unpack_uint16_from = Struct('<H').unpack_from
 unpack_uint32_from = Struct('<I').unpack_from
 unpack_uint64_from = Struct('<Q').unpack_from
 
-DECIMAL_POINT_DEFAULT = 8  # VIPS
+
 
 
 class UnknownBaseUnit(Exception): pass
@@ -712,12 +714,7 @@ def block_explorer(config: 'SimpleConfig') -> str:
 def block_explorer_tuple(config: 'SimpleConfig') -> Optional[Tuple[str, dict]]:
     return block_explorer_info().get(block_explorer(config))
 
-def block_explorer_URL(config: 'SimpleConfig', params) -> Optional[str]:
-    """
-    :param config:
-    :type params: dict
-    :return: str
-    """
+def block_explorer_URL(config: 'SimpleConfig', **params) -> Optional[str]:
     be_tuple = block_explorer_tuple(config)
     if not be_tuple:
         return
@@ -735,7 +732,7 @@ def block_explorer_URL(config: 'SimpleConfig', params) -> Optional[str]:
             continue
         url_parts.append(kind_str)
         url_parts.append(v)
-    return ''.join(url_parts)
+    return "".join(url_parts)
 
 # URL decode
 #_ud = re.compile('%([0-9a-hA-H]{2})', re.MULTILINE)
