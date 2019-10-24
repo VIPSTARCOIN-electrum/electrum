@@ -1785,10 +1785,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         if status == PR_PAID:
             self.notify(_('Payment received') + '\n' + key)
 
-    def on_invoice_status(self, key, status, log):
+    def on_invoice_status(self, key, status):
         if key not in self.wallet.invoices:
             return
-        self.invoice_list.update_item(key, status, log)
+        self.invoice_list.update_item(key, status)
         if status == PR_PAID:
             self.show_message(_('Payment succeeded'))
             self.need_update.set()
@@ -1947,33 +1947,32 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         msg = _('Signing transaction...')
         WaitingDialog(self, msg, task, on_success, on_failure)
 
-    def broadcast_transaction(self, tx, tx_desc):
+    def broadcast_transaction(self, tx, invoice=None):
 
         def broadcast_thread():
             # non-GUI thread
             pr = self.payment_request
             if pr and pr.has_expired():
                 self.payment_request = None
-                return False, _("Payment request has expired")
-            status = False
+                return False, _("Invoice has expired")
             try:
                 self.network.run_from_another_thread(self.network.broadcast_transaction(tx))
             except TxBroadcastError as e:
-                msg = e.get_message_for_gui()
+                return False, e.get_message_for_gui()
             except BestEffortRequestFailed as e:
-                msg = repr(e)
-            else:
-                status, msg = True, tx.txid()
-            if pr and status is True:
-                key = pr.get_id()
-                #self.wallet.set_invoice_paid(key, tx.txid())
+                return False, repr(e)
+            # success
+            key = invoice['id']
+            txid = tx.txid()
+            self.wallet.set_paid(key, txid)
+            if pr:
                 self.payment_request = None
                 refund_address = self.wallet.get_receiving_address()
                 coro = pr.send_payment_and_receive_paymentack(str(tx), refund_address)
                 fut = asyncio.run_coroutine_threadsafe(coro, self.network.asyncio_loop)
                 ack_status, ack_msg = fut.result(timeout=20)
                 self.logger.info(f"Payment ACK: {ack_status}. Ack message: {ack_msg}")
-            return status, msg
+            return True, txid
 
         # Capture current TL window; override might be removed on return
         parent = self.top_level_window(lambda win: isinstance(win, MessageBoxMixin))
