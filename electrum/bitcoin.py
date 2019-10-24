@@ -24,7 +24,7 @@
 # SOFTWARE.
 
 import hashlib
-from typing import List, Tuple, TYPE_CHECKING, Optional, Union
+from typing import List, Tuple, TYPE_CHECKING, Optional, Union, NamedTuple
 from enum import IntEnum
 
 from vips_abi import encode_abi
@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 COINBASE_MATURITY = 500
 COIN = 100000000
 TOTAL_COIN_SUPPLY_LIMIT_IN_BTC = 70000000000
-RECOMMEND_CONFIRMATIONS = 10
+RECOMMEND_CONFIRMATIONS = 6
 
 # supported types of transaction outputs
 TYPE_ADDRESS = 0
@@ -312,7 +312,10 @@ def relayfee(network: 'Network' = None) -> int:
 
 def dust_threshold(network: 'Network'=None) -> int:
     # Change <= dust threshold is added to the tx fee
-    return 182 * 3 * relayfee(network) // 1000
+    # for Bitcoin DEFAULT_MIN_RELAY_TX_FEE=1000, DUST_RELAY_TX_FEE=3000
+    # for VIPSTARCOIN DEFAULT_MIN_RELAY_TX_FEE=400000, DUST_RELAY_TX_FEE=400000
+    # we don't need plus 3 to relayfee
+    return 182 * relayfee(network) // 1000
 
 
 def hash_encode(x: bytes) -> str:
@@ -348,11 +351,6 @@ def hash160_to_p2sh(h160: bytes, *, net=None) -> str:
 def public_key_to_p2pkh(public_key: bytes, *, net=None) -> str:
     if net is None: net = constants.net
     return hash160_to_p2pkh(hash_160(public_key), net=net)
-
-def hash160_to_segwit_addr(h160: bytes, *, net=None) -> str:
-    if net is None:
-        net = constants.net
-    return segwit_addr.encode(net.SEGWIT_HRP, 0, h160)
 
 def hash_to_segwit_addr(h: bytes, witver: int, *, net=None) -> str:
     if net is None: net = constants.net
@@ -766,6 +764,17 @@ class Deserializer(object):
         result, = unpack_uint64_from(self.binary, self.cursor)
         self.cursor += 8
         return result
+
+class Token(NamedTuple):
+    contract_addr: str
+    bind_addr: str
+    name: str
+    symbol: str
+    decimals: int
+    balance: int
+
+    def get_key(self) -> str:
+        return f'{self.contract_addr}_{self.bind_addr}'
 
 def vips_abi_encode(abi, args):
     """

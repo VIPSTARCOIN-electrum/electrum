@@ -62,10 +62,6 @@ TX_ICONS = [
     "clock3.png",
     "clock4.png",
     "clock5.png",
-    "clock6.png",
-    "clock7.png",
-    "clock8.png",
-    "clock9.png",
     "confirmed.png",
 ]
 

@@ -592,52 +592,8 @@ def multisig_script(public_keys: Sequence[str], m: int) -> str:
     keylist = [push_script(k) for k in public_keys]
     return op_m + ''.join(keylist) + op_n + opcodes.OP_CHECKMULTISIG.hex()
 
-def contract_encode_number(n):
-    bchr = lambda x: bytes([x])
-    r = bytearray(0)
-    if n == 0:
-        return bytes(r)
-    neg = n < 0
-    absvalue = -n if neg else n
-    while absvalue:
-        r.append(absvalue & 0xff)
-        absvalue >>= 8
-    if r[-1] & 0x80:
-        r.append(0x80 if neg else 0)
-    elif neg:
-        r[-1] |= 0x80
-    return bytes(bchr(len(r)) + r)
 
-def contract_script(gas_limit, gas_price, datahex, contract_addr, opcode):
-    script = '0104'
-    script += bh2u(contract_encode_number(gas_limit))
-    script += bh2u(contract_encode_number(gas_price))
-    script += push_script(datahex)
 
-    if opcode == opcodes.OP_CALL:
-        script += push_script(contract_addr)
-
-    script += bh2u(bytes([opcode]))
-    return script
-
-def is_opcall_script(_bytes):
-    try:
-        decoded = [x for x in script_GetOp(_bytes)]
-    except MalformedVIPSTARCOINScript:
-        return False
-    return len(decoded) == 6 \
-           and decoded[0] == (1, b'\x04', 2) \
-           and decoded[-2][0] == 0x14 \
-           and decoded[-1][0] == opcodes.OP_CALL
-
-def is_opcreate_script(_bytes):
-    try:
-        decoded = [x for x in script_GetOp(_bytes)]
-    except MalformedVIPSTARCOINScript:
-        return False
-    return len(decoded) == 5 \
-           and decoded[0] == (1, b'\x04', 2) \
-           and decoded[-1][0] == opcodes.OP_CREATE
 
 class Transaction:
 
@@ -786,7 +742,7 @@ class Transaction:
             return addr
         elif output_type == TYPE_ADDRESS:
             return bitcoin.address_to_script(addr)
-        elif output_type == TYPE_PUBKEY:
+        elif output_type == TYPE_PUBKEY or output_type == TYPE_STAKE:
             return bitcoin.public_key_to_p2pk_script(addr)
         else:
             raise TypeError('Unknown output type')
@@ -1288,6 +1244,22 @@ class Transaction:
         tx.deserialize(True)
         return tx
 
+    def sender_sort(self, sender):
+        if not sender:
+            return
+        sender_inp = None
+        for i in range(len(self._inputs)):
+            inp = self._inputs[i]
+            if inp['address'] == sender:
+                sender_inp = inp
+                del self._inputs[i]
+                break
+        if sender_inp:
+            self._inputs.insert(0, sender_inp)
+        else:
+            _logger.info(f'sender {self._inputs}')
+            raise Exception('sender - sender address not in inputs')
+
 
 def tx_from_str(txt: str) -> str:
     """Sanitizes tx-describing input (json or raw hex or base43) into
@@ -1312,3 +1284,54 @@ def tx_from_str(txt: str) -> str:
     tx_dict = json.loads(str(txt))
     assert "hex" in tx_dict.keys()
     return tx_dict["hex"]
+
+
+def contract_encode_number(n):
+    bchr = lambda x: bytes([x])
+    r = bytearray(0)
+    if n == 0:
+        return bytes(r)
+    neg = n < 0
+    absvalue = -n if neg else n
+    while absvalue:
+        r.append(absvalue & 0xff)
+        absvalue >>= 8
+    if r[-1] & 0x80:
+        r.append(0x80 if neg else 0)
+    elif neg:
+        r[-1] |= 0x80
+    return bytes(bchr(len(r)) + r)
+
+
+def contract_script(gas_limit, gas_price, datahex, contract_addr, opcode):
+    script = '0104'
+    script += bh2u(contract_encode_number(gas_limit))
+    script += bh2u(contract_encode_number(gas_price))
+    script += push_script(datahex)
+
+    if opcode == opcodes.OP_CALL:
+        script += push_script(contract_addr)
+
+    script += bh2u(bytes([opcode]))
+    return script
+
+
+def is_opcall_script(_bytes):
+    try:
+        decoded = [x for x in script_GetOp(_bytes)]
+    except MalformedBitcoinScript:
+        return False
+    return len(decoded) == 6 \
+           and decoded[0] == (1, b'\x04', 2) \
+           and decoded[-2][0] == 0x14 \
+           and decoded[-1][0] == opcodes.OP_CALL
+
+
+def is_opcreate_script(_bytes):
+    try:
+        decoded = [x for x in script_GetOp(_bytes)]
+    except MalformedBitcoinScript:
+        return False
+    return len(decoded) == 5 \
+           and decoded[0] == (1, b'\x04', 2) \
+           and decoded[-1][0] == opcodes.OP_CREATE

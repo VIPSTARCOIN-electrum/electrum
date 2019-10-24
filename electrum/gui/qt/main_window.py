@@ -75,7 +75,6 @@ from electrum.version import ELECTRUM_VERSION
 from electrum.network import Network, TxBroadcastError, BestEffortRequestFailed
 from electrum.exchange_rate import FxThread
 from electrum.simple_config import SimpleConfig
-from electrum.tokens import Token
 from electrum.logging import Logger
 from electrum.util import PR_PAID, PR_UNPAID, PR_INFLIGHT, PR_FAILED
 from electrum.util import pr_expiration_values
@@ -153,7 +152,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.addresses = wallet.get_addresses_sort_by_balance()
         self.fx = gui_object.daemon.fx  # type: FxThread
         self.contacts = wallet.contacts
-        self.smart_contracts = wallet.smart_contracts
+        self.smart_contracts = wallet.db.smart_contracts
         self.tokens = wallet.db.tokens
         self.tray = gui_object.tray
         self.app = gui_object.app
@@ -256,7 +255,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
                          'new_transaction', 'status',
                          'banner', 'verified', 'fee', 'fee_histogram', 'on_quotes',
                          'on_history', 'channel', 'channels_updated',
-                         'invoice_status', 'request_status']
+                         'invoice_status', 'request_status', 'on_token']
             # To avoid leaking references to "self" that prevent the
             # window from being GC-ed when closed, callbacks should be
             # methods of this class only, and specifically not be
@@ -405,6 +404,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             self.on_fx_quotes()
         elif event == 'on_history':
             self.on_fx_history()
+        elif event == 'on_token':
+            self.on_fx_token()
         elif event == 'channels_updated':
             self.channels_list.update_rows.emit(*args)
         elif event == 'channel':
@@ -3400,21 +3401,21 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             return
         self.wallet.delete_token(key)
         self.token_balance_list.update()
-        self.token_hist_model.refresh('remove_token')
+        self.token_hist_model.refresh('delete_token')
 
     def token_add_dialog(self):
         d = TokenAddDialog(self)
         d.show()
 
-    def token_view_dialog(self, token):
+    def token_view_dialog(self, token: 'Token'):
         d = TokenInfoDialog(self, token)
         d.show()
 
-    def token_send_dialog(self, token):
+    def token_send_dialog(self, token: 'Token'):
         d = TokenSendDialog(self, token)
         d.show()
 
-    def do_token_pay(self, token, pay_to, amount, gas_limit, gas_price, dialog, preview=False):
+    def do_token_pay(self, token: 'Token', pay_to, amount, gas_limit, gas_price, dialog, preview=False):
         try:
             datahex = 'a9059cbb{}{:064x}'.format(pay_to.zfill(64), amount)
             script = contract_script(gas_limit, gas_price, datahex, token.contract_addr, opcodes.OP_CALL)
@@ -3444,7 +3445,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             self.show_transaction(tx, desc)
             return
 
-        amount = sum(map(lambda y: y[2], outputs))
         fee = tx.get_fee()
 
         if fee < self.wallet.relayfee() * tx.estimated_size() / 1000:
@@ -3509,8 +3509,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         try:
             result = self.network.run_from_another_thread(self.network.call_contract(address, data, sender))
         except BaseException as e:
-            import traceback, sys
-            traceback.print_exc(file=sys.stderr)
+            self.logger.exception('')
             dialog.show_message(str(e))
             return
         types = list([x['type'] for x in abi.get('outputs', [])])
@@ -3531,11 +3530,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             output = ','.join([decode_x(x) for x in output])
             dialog.show_message(output)
         except (BaseException,) as e:
-            import traceback, sys
-            traceback.print_exc(file=sys.stderr)
-            print(e)
-            dialog.show_message(e, result)
-
+            self.logger.exception('')
+            dialog.show_message(f'{e} {result}')
 
     def sendto_smart_contract(self, address, abi, args, gas_limit, gas_price, amount, sender, dialog, preview):
         try:

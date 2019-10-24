@@ -127,8 +127,8 @@ class ContractFuncLayout(QGridLayout):
         address_lb = QLabel(_("Address:"))
         self.address_e = ButtonsLineEdit()
         qr_show = lambda: dialog.parent().show_qrcode(str(self.address_e.text()), 'Address', parent=dialog)
-        icon = ":icons/qrcode_white.png" if ColorScheme.dark_scheme else ":icons/qrcode.png"
-        self.address_e.addButton(icon, qr_show, _("Show as QR code"))
+        qr_icon = "qrcode_white.png" if ColorScheme.dark_scheme else "qrcode.png"
+        self.address_e.addButton(qr_icon, qr_show, _("Show as QR code"))
         self.address_e.setText(self.contract['address'])
         self.address_e.setReadOnly(True)
         self.addWidget(address_lb, 1, 0)
@@ -252,10 +252,14 @@ class ContractFuncLayout(QGridLayout):
             self.amount_e)
 
     def parse_args(self):
+        if len(self.senders) > 0:
+            sender = self.senders[self.sender_combo.currentIndex()]
+        else:
+            sender = ''
         args = json.loads('[{}]'.format(self.args_e.text()))
         abi_index = self.abi_signatures[self.abi_combo.currentIndex()][0]
         if abi_index == -1:
-            return None, []
+            return None, [], sender
         abi = self.contract['interface'][abi_index]
         inputs = abi.get('inputs', [])
         if not len(args) == len(inputs):
@@ -273,10 +277,7 @@ class ContractFuncLayout(QGridLayout):
             elif 'int' in _type:
                 if not isinstance(args[index], int):
                     raise ParseArgsException('inavlid input:{}'.format(args[index]))
-        if len(self.senders) > 0:
-            sender = self.senders[self.sender_combo.currentIndex()]
-        else:
-            sender = ''
+
         return abi, args, sender
 
     def do_call(self):
@@ -286,8 +287,7 @@ class ContractFuncLayout(QGridLayout):
             self.dialog.show_message(str(e))
             return
         except (BaseException,) as e:
-            import traceback, sys
-            traceback.print_exc(file=sys.stderr)
+            _logger.exception('')
             self.dialog.show_message(str(e))
             return
         self.dialog.do_call(abi, args, sender)
@@ -302,8 +302,7 @@ class ContractFuncLayout(QGridLayout):
             self.dialog.show_message(str(e))
             return
         except (BaseException,) as e:
-            import traceback, sys
-            traceback.print_exc(file=sys.stderr)
+            _logger.exception('')
             self.dialog.show_message(str(e))
             return
         if not sender:
@@ -447,8 +446,7 @@ class ContractCreateLayout(QVBoxLayout):
             self.dialog.show_message(str(e))
             return
         except (BaseException,) as e:
-            import traceback, sys
-            traceback.print_exc(file=sys.stderr)
+            _logger.exception('')
             self.dialog.show_message(str(e))
             return
         gas_limit, gas_price = self.parse_values()
@@ -479,12 +477,11 @@ class ContractCreateLayout(QVBoxLayout):
                                                for i in constructor.get('inputs', [])]))
             self.args_e.setPlaceholderText(signature)
         except (BaseException,) as e:
-            import traceback, sys
-            traceback.print_exc(file=sys.stderr)
+            _logger.exception('')
             self.abi = []
             self.constructor = {}
             self.args_e.setPlaceholderText('')
-            _logger.info('[interface_changed]', str(e))
+            _logger.info(f'[interface_changed] {repr(e)}')
 
 
 class ContractCreateDialog(QDialog, MessageBoxMixin):
