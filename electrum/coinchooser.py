@@ -475,7 +475,7 @@ class CoinChooserVIPSTARCOIN(CoinChooserPrivacy):
                     break
             if not found:
                 raise Exception(_('Sender address has no UTXO, you must to send 0.2 VIPS or more to Sender address.'))
-        return super().make_tx(coins, inputs, outputs, change_addrs, fee_estimator_vb, dust_threshold, gas_fee, sender)
+        return super().make_tx(coins, inputs, outputs, change_addrs, fee_estimator_vb, dust_threshold, sender)
 
 
 COIN_CHOOSERS = {
