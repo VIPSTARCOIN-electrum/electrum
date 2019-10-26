@@ -8,6 +8,7 @@ from kivy.uix.button import Button
 
 from electrum.gui.kivy.i18n import _
 
+from electrum.bitcoin import Token
 from electrum.util import parse_token_URI, InvalidTokenURI
 
 from .choice_dialog import ChoiceDialog
@@ -107,7 +108,7 @@ class AddTokenDialog(Factory.Popup):
                 self.app.show_info(_("token info not valid: {} {} {}").format(name, symbol, decimals))
                 return
             balance = self.app.network.run_from_another_thread(self.app.network.request_token_balance(bind_addr, contract_addr))
-            token = [contract_addr, bind_addr, name, symbol, decimals, balance]
+            token = Token(contract_addr, bind_addr, name, symbol, decimals, balance)
             self.app.set_token(token)
         except BaseException as e:
             import traceback, sys

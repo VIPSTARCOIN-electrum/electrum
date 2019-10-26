@@ -68,14 +68,12 @@ Builder.load_string('''
                 text: _('Send Token')
                 on_release: 
                     root.do_send()
-                    root.dismiss()
             Button:
                 size_hint: 0.5, None
                 height: '48dp'
                 text: _('Receive Token')
                 on_release: 
                     root.do_receive()
-                    root.dismiss()
             Button:
                 size_hint: 0.5, None
                 height: '48dp'
