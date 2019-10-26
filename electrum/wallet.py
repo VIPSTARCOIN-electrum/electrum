@@ -642,6 +642,9 @@ class Abstract_Wallet(AddressSynchronizer):
                     return _('contract gas refund')
                 return _('stake mined')
             elif tx.inputs()[0]['type'] == 'coinbase':
+                is_relevant, is_mine, delta, fee = self.get_wallet_delta(tx)
+                if delta and 0 < delta < 4 * 10 ** 7:
+                    return _('contract gas refund')
                 return 'coinbase'
         except (BaseException,) as e:
             _logger.info(f'get_default_label {e}, {TYPE_STAKE}')
