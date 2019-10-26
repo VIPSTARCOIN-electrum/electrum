@@ -734,7 +734,6 @@ class Blockchain(Logger):
         path = self.path(True, is_pos_crt)
         if rebuild:
             os.remove(path)
-            print("1 path remove")
             return []
         try:
             with open(path, 'r') as block_file:
@@ -754,11 +753,9 @@ class Blockchain(Logger):
 
                 i = 1
                 if block_list[-1] != firstlong:
-                    print("not")
                     block_list.append(firstlong)
 
             with open(path, 'w') as block_file:
-                print("add")
                 block_file.write(json.dumps(block_list[-longSample:]))
         except:
             block_list = []
@@ -779,7 +776,6 @@ class Blockchain(Logger):
                 block_list.append(firstlong)
             block_list.reverse()
             with open(path, 'w') as block_file:
-                print("new")
                 block_file.write(json.dumps(block_list))
         return block_list
 
