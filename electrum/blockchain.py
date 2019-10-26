@@ -22,6 +22,7 @@
 # SOFTWARE.
 import os
 import threading
+import json
 from typing import Optional, Dict, Mapping, Sequence
 
 from . import util
@@ -315,18 +316,16 @@ class Blockchain(Logger):
         self._size = os.path.getsize(p)//HEADER_SIZE if os.path.exists(p) else 0
 
     @classmethod
-    def verify_header(cls, header: dict, prev_hash: str, target: int, check_header_bool: bool, expected_header_hash: str=None) -> None:
+    def verify_header(cls, header: dict, prev_hash: str, target: int, expected_header_hash: str=None) -> None:
         height = header.get('block_height')
-        if prev_hash != header.get('prev_block_hash'):
-            raise Exception("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
-        if check_header_bool is False and height % 12 != 0:
-            return
         _hash = hash_header(header)
         if expected_header_hash and expected_header_hash != _hash:
             raise Exception("hash mismatches with expected: {} vs {}".format(expected_header_hash, _hash))
-        if constants.net.TESTNET:
-            return
+        if prev_hash != header.get('prev_block_hash'):
+            raise Exception("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
         if height // 2016 < len(constants.net.CHECKPOINTS) and height % 2016 != 2015 or height >= len(constants.net.CHECKPOINTS)*2016 and height <= len(constants.net.CHECKPOINTS)*2016 + 2100:
+            return
+        if constants.net.TESTNET:
             return
         bits = cls.target_to_bits(target)
         if bits != header.get('bits'):
@@ -337,7 +336,6 @@ class Blockchain(Logger):
 
     def verify_chunk(self, index: int, data: bytes) -> None:
         num = len(data) // HEADER_SIZE
-        check_header_bool = True if num == 2016 else False
         start_height = index * 2016
         prev_hash = self.get_hash(start_height - 1)
         headers = {}
@@ -350,15 +348,12 @@ class Blockchain(Logger):
             raw_header = data[i*HEADER_SIZE : (i+1)*HEADER_SIZE]
             header = deserialize_header(raw_header, index*2016 + i)
             headers[header.get('block_height')] = header
-            if check_header_bool is True or height % 12 == 0:
-                target = self.get_target(index*2016 + i, headers)
-            else:
-                target = 0
-            self.verify_header(header, prev_hash, target, check_header_bool, expected_header_hash)
+            target = self.get_target(index*2016 + i, headers)
+            self.verify_header(header, prev_hash, target, expected_header_hash)
             prev_hash = hash_header(header)
 
     @with_lock
-    def path(self):
+    def path(self, block_cache=False, is_pos=False):
         d = util.get_headers_dir(self.config)
         if self.parent is None:
             filename = 'blockchain_headers'
@@ -368,6 +363,13 @@ class Blockchain(Logger):
             first_hash = self._forkpoint_hash.lstrip('0')
             basename = f'fork2_{self.forkpoint}_{prev_hash}_{first_hash}'
             filename = os.path.join('forks', basename)
+        if block_cache:
+            cache_dir = os.path.join(d, 'block_cache')
+            util.make_dir(cache_dir)
+            basename = 'pow_cache'
+            if is_pos:
+                basename = 'pos_cache'
+            filename = os.path.join('block_cache', basename)
         return os.path.join(d, filename)
 
     @with_lock
@@ -489,9 +491,8 @@ class Blockchain(Logger):
     def write(self, data: bytes, offset: int, truncate: bool=True) -> None:
         filename = self.path()
         self.assert_headers_file_available(filename)
-        size = os.path.getsize(filename) if os.path.exists(filename) else 0
         with open(filename, 'rb+') as f:
-            if truncate and offset != size:
+            if truncate and offset != self._size * HEADER_SIZE:
                 f.seek(offset)
                 f.truncate()
             f.seek(offset)
@@ -507,9 +508,7 @@ class Blockchain(Logger):
         # headers are only _appended_ to the end:
         assert delta == self.size(), (delta, self.size())
         assert len(data) == HEADER_SIZE
-        filename = self.path()
-        size = os.path.getsize(filename) if os.path.exists(filename) else 0
-        self.write(data, size)
+        self.write(data, delta*HEADER_SIZE)
         self.swap_with_parent()
 
     @with_lock
@@ -575,11 +574,13 @@ class Blockchain(Logger):
 
         targetLimit = self.get_target_pow_pos(crt)
         is_pos_crt = is_pos(crt)
+        cache = self.make_block_cache(last_height, is_pos_crt, last, chain, False)
         shortSample = 15
         mediumSample = 200
         longSample = 1000
         pindexFirstShortTime = 0
         pindexFirstMediumTime = 0
+        pindexFirstLongTime = 0
         ActualTimespan = 0
         ActualTimespanShort = 0
         ActualTimespanMedium = 0
@@ -607,50 +608,54 @@ class Blockchain(Logger):
 #            if check is None:
 #                check = self.read_header(check_height)
 
-        if height <= 1000:
-            for i in range(0, longSample):
-                if not firstlong:
-                    break
+#        if height <= 1000:
+#            for i in range(0, longSample):
+#                if not firstlong:
+#                    break
+#
+#                firstlong_height -= 1
+#                firstlong = chain.get(firstlong_height)
+#                if firstlong is None:
+#                    firstlong = self.read_header(firstlong_height)
+#
+#                if is_pos_crt:
+#                    if not is_pos(firstlong):
+#                        continue
+#                elif is_pos(firstlong):
+#                    continue
+#
+#                if i == shortSample - 1:
+#                    pindexFirstShortTime = firstlong.get('timestamp')
+#
+#                if i == mediumSample - 1:
+#                    pindexFirstMediumTime = firstlong.get('timestamp')
+#        else:
+#            i = 0
+#            for j in range(2100):
+#                if i == longSample or not firstlong:
+#                    break
+#                firstlong_height -= 1
+#                firstlong = chain.get(firstlong_height)
+#                if firstlong is None:
+#                    firstlong = self.read_header(firstlong_height)
+#
+#                if is_pos_crt:
+#                    if not is_pos(firstlong):
+#                        continue
+#                elif is_pos(firstlong):
+#                    continue
+#
+#                if i == shortSample - 1:
+#                    pindexFirstShortTime = firstlong.get('timestamp')
+#
+#                if i == mediumSample - 1:
+#                    pindexFirstMediumTime = firstlong.get('timestamp')
+#
+#                i += 1
 
-                firstlong_height -= 1
-                firstlong = chain.get(firstlong_height)
-                if firstlong is None:
-                    firstlong = self.read_header(firstlong_height)
-
-                if is_pos_crt:
-                    if not is_pos(firstlong):
-                        continue
-                elif is_pos(firstlong):
-                    continue
-
-                if i == shortSample - 1:
-                    pindexFirstShortTime = firstlong.get('timestamp')
-
-                if i == mediumSample - 1:
-                    pindexFirstMediumTime = firstlong.get('timestamp')
-        else:
-            i = 0
-            for j in range(2100):
-                if i == longSample or not firstlong:
-                    break
-                firstlong_height -= 1
-                firstlong = chain.get(firstlong_height)
-                if firstlong is None:
-                    firstlong = self.read_header(firstlong_height)
-
-                if is_pos_crt:
-                    if not is_pos(firstlong):
-                        continue
-                elif is_pos(firstlong):
-                    continue
-
-                if i == shortSample - 1:
-                    pindexFirstShortTime = firstlong.get('timestamp')
-
-                if i == mediumSample - 1:
-                    pindexFirstMediumTime = firstlong.get('timestamp')
-
-                i += 1
+        pindexFirstLongTime = cache[-longSample].get('timestamp')
+        pindexFirstMediumTime = cache[-mediumSample].get('timestamp')
+        pindexFirstShortTime = cache[-shortSample].get('timestamp')
 
         if last.get('timestamp') - pindexFirstShortTime != 0:
             ActualTimespanShort = (last.get('timestamp') - pindexFirstShortTime) // shortSample
@@ -658,8 +663,8 @@ class Blockchain(Logger):
         if last.get('timestamp') - pindexFirstMediumTime != 0:
             ActualTimespanMedium = (last.get('timestamp') - pindexFirstMediumTime) // mediumSample
 
-        if last.get('timestamp') - firstlong.get('timestamp') != 0:
-            ActualTimespanLong = (last.get('timestamp') - firstlong.get('timestamp')) // longSample
+        if last.get('timestamp') - pindexFirstLongTime != 0:
+            ActualTimespanLong = (last.get('timestamp') - pindexFirstLongTime) // longSample
 
         ActualTimespanSum = ActualTimespanShort + ActualTimespanMedium + ActualTimespanLong
 
@@ -680,11 +685,14 @@ class Blockchain(Logger):
         ActualTimespan = min(ActualTimespan, ActualTimespanMax)
 
         bnNew = self.bits_to_target(last.get('bits'))
-        bnNew *= ActualTimespan;
-        bnNew //= PowTargetTimespan;
+        bnNew *= ActualTimespan
+        bnNew //= PowTargetTimespan
 
         if bnNew <= 0 or bnNew > targetLimit:
             bnNew = targetLimit
+        if crt.get('bits') != self.target_to_bits(bnNew):
+            self.make_block_cache(last_height, is_pos_crt, last, chain, True)
+            bnNew = self.get_target_ehrc(height, last_height, chain)
         return bnNew
 
     def get_target_pow_pos(self, block=None):
@@ -718,6 +726,58 @@ class Blockchain(Logger):
                 pindex_prev = self.read_header(prev_height - 1)
 
         return prev_height
+
+    def make_block_cache(self, last_height: int, is_pos_crt: bool, last=None, chain=None, rebuild=False) -> list:
+        longSample = 1000
+        firstlong = last
+        firstlong_height = last_height
+        path = self.path(True, is_pos_crt)
+        if rebuild:
+            os.remove(path)
+            return []
+        try:
+            with open(path, 'r') as block_file:
+                block_list = json.loads(block_file.read())
+            i = 0
+            while i < 1 and firstlong:
+                firstlong_height -= 1
+                firstlong = chain.get(firstlong_height)
+                if firstlong is None:
+                    firstlong = self.read_header(firstlong_height)
+
+                if is_pos_crt:
+                    if not is_pos(firstlong):
+                        continue
+                elif is_pos(firstlong):
+                    continue
+
+                i = 1
+                if block_list[-1] != firstlong:
+                    block_list.append(firstlong)
+
+            with open(path, 'w') as block_file:
+                block_file.write(json.dumps(block_list[-longSample:]))
+        except:
+            block_list = []
+            i = 0
+            while i < longSample and firstlong:
+                firstlong_height -= 1
+                firstlong = chain.get(firstlong_height)
+                if firstlong is None:
+                    firstlong = self.read_header(firstlong_height)
+
+                if is_pos_crt:
+                    if not is_pos(firstlong):
+                        continue
+                elif is_pos(firstlong):
+                    continue
+
+                i += 1
+                block_list.append(firstlong)
+            block_list.reverse()
+            with open(path, 'w') as block_file:
+                block_file.write(json.dumps(block_list))
+        return block_list
 
     def get_target(self, height: int, chain=None) -> int:
         # compute target from chunk x, used in chunk x+1
@@ -809,14 +869,13 @@ class Blockchain(Logger):
             return False
         headers = {}
         headers[header.get('block_height')] = header
-        check_header_bool = True
         try:
             target = self.get_target(height, headers)
         except MissingHeader:
             _logger.info(f"verify_header failed {height}")
             return False
         try:
-            self.verify_header(header, prev_hash, target, check_header_bool)
+            self.verify_header(header, prev_hash, target)
         except BaseException as e:
             _logger.info(f"verify_header failed {e}, {height}")
             return False
