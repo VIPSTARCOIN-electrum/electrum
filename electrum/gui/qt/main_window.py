@@ -52,7 +52,7 @@ from PyQt5.QtWidgets import (QMessageBox, QComboBox, QSystemTrayIcon, QTabWidget
 import electrum
 from electrum import (keystore, simple_config, ecc, constants, util, bitcoin, commands,
                       coinchooser, paymentrequest)
-from electrum.bitcoin import COIN, is_address, TYPE_ADDRESS, TYPE_SCRIPT, is_hash160, b58_address_to_hash160, vips_abi_encode
+from electrum.bitcoin import COIN, is_address, TYPE_ADDRESS, TYPE_SCRIPT, is_hash160, b58_address_to_hash160, vips_abi_encode, opcodes, Token
 from electrum.crypto import hash_160
 from electrum.plugin import run_hook
 from electrum.i18n import _
@@ -65,7 +65,7 @@ from electrum.util import (format_time, format_satoshis, format_tokens, format_f
                            UnknownBaseUnit, DECIMAL_POINT_DEFAULT, UserFacingException,
                            get_new_wallet_name, send_exception_to_crash_reporter,
                            InvalidBitcoinURI)
-from electrum.transaction import Transaction, opcodes, contract_script, TxOutput, is_opcreate_script
+from electrum.transaction import Transaction, contract_script, TxOutput, is_opcreate_script
 from electrum.address_synchronizer import AddTransactionException
 from electrum.wallet import (Multisig_Wallet, CannotBumpFee, Abstract_Wallet,
                              sweep_preparations, InternalAddressCorruption)
@@ -3751,8 +3751,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             tx_desc = 'contract sendto {}'.format(self.smart_contracts[address][0])
             self._smart_contract_broadcast(outputs, tx_desc, gas_limit * gas_price, sender, dialog, None, preview)
         except (BaseException,) as e:
-            import traceback, sys
-            traceback.print_exc(file=sys.stderr)
+            self.logger.exception('')
             dialog.show_message(str(e))
 
     def create_smart_contract(self, name, bytecode, abi, constructor, args, gas_limit, gas_price, sender, dialog, preview):
@@ -3773,8 +3772,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             self._smart_contract_broadcast(outputs, 'Create contract {}'.format(name), gas_limit * gas_price,
                                            sender, dialog, broadcast_done, preview)
         except (BaseException,) as e:
-            import traceback, sys
-            traceback.print_exc(file=sys.stderr)
+            self.logger.exception('')
             dialog.show_message(str(e))
 
     def contract_create_dialog(self):
