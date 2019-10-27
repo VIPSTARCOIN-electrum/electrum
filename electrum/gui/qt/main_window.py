@@ -3388,7 +3388,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             win.msg_box(QPixmap(icon_path("offline_tx.png")), None, _('Success'), msg)
             return True
 
-    def set_token(self, token):
+    def set_token(self, token: 'Token'):
         self.wallet.add_token(token)
         self.token_balance_list.update()
         self.token_hist_list.update()
@@ -3496,13 +3496,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.smart_contract_list.update()
         return True
 
-    def delete_samart_contact(self, address):
-        contract_addr = self.smart_contracts[address][0]
-        if not self.question(_("Remove {} from your list of smart contracts?")
-                             .format(contract_addr)):
-            return
+    def delete_samart_contact(self, address: str) -> bool:
+        if not self.question(_("Remove {} from your list of smart contracts?".format(
+                self.smart_contracts[address][0]))):
+            return False
         self.smart_contracts.pop(address)
         self.smart_contract_list.update()
+        return True
 
     def call_smart_contract(self, address, abi, args, sender, dialog):
         data = vips_abi_encode(abi, args)
