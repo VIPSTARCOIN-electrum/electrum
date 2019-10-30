@@ -209,8 +209,8 @@ class LNWorker(Logger):
         # and only return mainnet nodes. so for the time being dns seeding is disabled:
         if constants.net in (constants.BitcoinTestnet, ):
             return [random.choice(FALLBACK_NODE_LIST_TESTNET)]
-        elif constants.net in (constants.BitcoinMainnet, ):
-            return [random.choice(FALLBACK_NODE_LIST_MAINNET)]
+#        elif constants.net in (constants.BitcoinMainnet, ):
+#            return [random.choice(FALLBACK_NODE_LIST_MAINNET)]
         else:
             return []
 
