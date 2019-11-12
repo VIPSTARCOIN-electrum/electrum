@@ -107,14 +107,11 @@ def is_pos(header: dict):
         or hash_prevout_n != 0xffffffff)
 
 def fix_header(header: bytes):
-    if len(header) == HEADER_SIZE - 1:
-        exception_header = header[0:181] + b'\x00' + header[181:251]
-        return exception_header
-    if len(header) == HEADER_SIZE - 2:
-        exception_header = header[0:181] + b'\x00\x00' + header[181:250]
-        return exception_header
-    while len(header) < HEADER_SIZE:
-        header += b'\x00'
+    fix_size = HEADER_SIZE - len(header)
+    try:
+        header = header[0:181] + (b'\x00' * fix_size) + header[181:HEADER_SIZE - fix_size]
+    except:
+        header += b'\x00' * fix_size
     return header
 
 # key: blockhash hex at forkpoint
