@@ -384,34 +384,6 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         return pk, True
 
 
-class Qt_Core_Keystore(BIP32_KeyStore):
-
-    type = 'qtcore'
-
-    def __init__(self, d):
-        BIP32_KeyStore.__init__(self, d)
-        self.ext_master_xprv = d.get('ext_master_xprv', '')
-
-    def dump(self):
-        d = Deterministic_KeyStore.dump(self)
-        d['type'] = self.type
-        d['xpub'] = self.xpub
-        d['xprv'] = self.xprv
-        d['derivation'] = qt_core_derivation()
-        d['ext_master_xprv'] = self.ext_master_xprv
-        return d
-
-    def derive_pubkey(self, for_change, n):
-        master_xprv = self.get_master_private_key(None)
-        node = BIP32Node.from_xkey(master_xprv).subkey_at_private_derivation([n + BIP32_PRIME])
-        return self.get_pubkey_from_xpub(node.to_xpub(), ())
-
-    def get_private_key(self, sequence, password):
-        master_xprv = self.get_master_private_key(password)
-        node = BIP32Node.from_xkey(master_xprv).subkey_at_private_derivation([sequence[1]+BIP32_PRIME])
-        pk = node.eckey.get_secret_bytes()
-        return pk, True
-
 
 class Old_KeyStore(Deterministic_KeyStore):
 
@@ -821,9 +793,6 @@ def bip44_derivation(account_id, bip43_purpose=44):
     return "m/%d'/%d'/%d'" % (bip43_purpose, coin, int(account_id))
 
 
-def qt_core_derivation():
-    return "m/0'/0'"
-
 def purpose48_derivation(account_id: int, xtype: str) -> str:
     # m / purpose' / coin_type' / account' / script_type' / change / address_index
     bip43_purpose = 48
@@ -888,29 +857,4 @@ def from_master_key(text):
         k = from_xpub(text)
     else:
         raise BitcoinException('Invalid master key')
-    return k
-
-
-def from_qt_core_xprv(ext_master_xprv):
-    k = Qt_Core_Keystore({})
-    k.ext_master_xprv = ext_master_xprv
-    node = BIP32Node.from_xkey(ext_master_xprv).subkey_at_private_derivation(qt_core_derivation())
-    k.add_xprv(node.to_xprv())
-    return k
-
-
-def from_qt_core_xpub(xpub):
-    k = Qt_Core_Keystore({})
-    k.xpub = xpub
-    return k
-
-
-def from_qt_core_master_key(text):
-    if is_xprv(text):
-        k = from_qt_core_xprv(text)
-    # not support yet
-    # elif is_xpub(text):
-    #     k = from_desktop_xpub(text)
-    else:
-        raise Exception('Invalid key')
     return k
