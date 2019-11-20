@@ -55,7 +55,7 @@ from .bitcoin import (COIN, TYPE_ADDRESS, TYPE_PUBKEY, TYPE_STAKE, is_address, a
 from .blockchain import TOKEN_TRANSFER_TOPIC
 from .crypto import sha256d
 from . import keystore
-from .keystore import load_keystore, Hardware_KeyStore, KeyStore, Qt_Core_Keystore
+from .keystore import load_keystore, Hardware_KeyStore, KeyStore
 from .util import multisig_type
 from .storage import StorageEncryptionVersion, WalletStorage
 from . import transaction, bitcoin, coinchooser, paymentrequest, ecc, bip32
@@ -2166,25 +2166,6 @@ class Standard_Wallet(Simple_Deterministic_Wallet):
         return bitcoin.pubkey_to_address(self.txin_type, pubkey)
 
 
-class Qt_Core_Wallet(Simple_Deterministic_Wallet):
-    wallet_type = 'qtcore'
-
-    def __init__(self, storage: WalletStorage, *, config: SimpleConfig):
-        Simple_Deterministic_Wallet.__init__(self, storage, config=config)
-        self.gap_limit = 100
-        self.gap_limit_for_change = 0
-        self.use_change = False
-
-    def synchronize(self):
-        # don't create change addres
-        # since core wallet doesn't distinguish address type from derivation path
-        with self.lock:
-            self.synchronize_sequence(False)
-
-    def pubkeys_to_address(self, pubkey):
-        return bitcoin.pubkey_to_address(self.txin_type, pubkey)
-
-
 class Multisig_Wallet(Deterministic_Wallet):
     # generic m of n
     gap_limit = 20
@@ -2287,7 +2268,7 @@ class Multisig_Wallet(Deterministic_Wallet):
         txin['num_sig'] = self.m
 
 
-wallet_types = ['standard', 'multisig', 'imported', 'qtcore']
+wallet_types = ['standard', 'multisig', 'imported']
 
 def register_wallet_type(category):
     wallet_types.append(category)
@@ -2296,8 +2277,7 @@ wallet_constructors = {
     'standard': Standard_Wallet,
     'old': Standard_Wallet,
     'xpub': Standard_Wallet,
-    'imported': Imported_Wallet,
-    'qtcore': Qt_Core_Wallet
+    'imported': Imported_Wallet
 }
 
 def register_constructor(wallet_type, constructor):
