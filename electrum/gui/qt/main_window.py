@@ -57,7 +57,7 @@ from electrum.crypto import hash_160
 from electrum.plugin import run_hook
 from electrum.i18n import _
 from electrum.util import (format_time, format_satoshis, format_fee_satoshis,
-                           format_satoshis_plain, format_tokens,
+                           format_satoshis_plain, format_tokens, NotEnoughFunds,
                            UserCancelled, profiler,
                            export_meta, import_meta, bh2u, bfh, InvalidPassword,
                            decimal_point_to_base_unit_name,
@@ -65,15 +65,15 @@ from electrum.util import (format_time, format_satoshis, format_fee_satoshis,
                            get_new_wallet_name, send_exception_to_crash_reporter,
                            InvalidBitcoinURI)
 from electrum.util import PR_TYPE_ONCHAIN, PR_TYPE_LN
-from electrum.transaction import (Transaction, PartialTxInput,
-                                  PartialTransaction, PartialTxOutput, is_opcreate_script)
+from electrum.transaction import (Transaction, PartialTxInput, PartialTransaction,
+                                  PartialTxOutput, is_opcreate_script, contract_script)
 from electrum.address_synchronizer import AddTransactionException
 from electrum.wallet import (Multisig_Wallet, CannotBumpFee, Abstract_Wallet,
                              sweep_preparations, InternalAddressCorruption)
 from electrum.version import ELECTRUM_VERSION
 from electrum.network import Network, TxBroadcastError, BestEffortRequestFailed
 from electrum.exchange_rate import FxThread
-from electrum.simple_config import SimpleConfig
+from electrum.simple_config import SimpleConfig, FEERATE_WARNING_HIGH_FEE
 from electrum.logging import Logger
 from electrum.util import PR_PAID, PR_FAILED
 from electrum.util import pr_expiration_values
@@ -1020,8 +1020,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         '''tx_desc is set only for txs created in the Send tab'''
         show_transaction(tx, parent=self, invoice=invoice, desc=tx_desc)
 
-    def show_token_transaction(self, tx_item, token):
-        show_token_transaction(tx_item, self, token)
+    def show_token_transaction(self, tx, tx_item, token):
+        show_token_transaction(tx, tx_item, self, token)
 
     def create_receive_tab(self):
         # A 4-column grid layout.  All the stretch is in the last column.
@@ -3162,7 +3162,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             _("Gas fee") + ": " + self.format_amount_and_units(gas_fee),
         ]
 
-        confirm_rate = simple_config.FEERATE_WARNING_HIGH_FEE
+        confirm_rate = FEERATE_WARNING_HIGH_FEE
         if fee - gas_fee > confirm_rate * tx.estimated_size() / 1000:
             msg.append(_('Warning') + ': ' + _("The fee for this transaction seems unusually high."))
 
@@ -3188,7 +3188,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
                     if broadcast_done:
                         broadcast_done(tx)
 
-        self.sign_tx_with_password(tx, sign_done, password)
+        self.sign_tx_with_password(tx, callback=sign_done, password=password)
 
     def set_smart_contract(self, name: str, address: str, interface: list) -> bool:
         if not is_hash160(address):

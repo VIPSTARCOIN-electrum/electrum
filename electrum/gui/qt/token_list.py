@@ -8,6 +8,7 @@ __author__ = 'CodeFace'
 import datetime
 import threading
 from enum import IntEnum
+from typing import Dict, Tuple, TYPE_CHECKING
 from decimal import Decimal
 
 from PyQt5.QtCore import (
@@ -17,12 +18,17 @@ from PyQt5.QtWidgets import QAbstractItemView, QMenu, QHeaderView
 
 from electrum.bitcoin import hash160_to_p2pkh, is_address
 from electrum.i18n import _
-from electrum.util import block_explorer_URL, profiler, TxMinedInfo, OrderedDictWithIndex
+from electrum.util import block_explorer_URL, profiler, TxMinedInfo, OrderedDictWithIndex, timestamp_to_datetime
 from electrum.wallet import InternalAddressCorruption
 from .util import read_QIcon, MyTreeView, AcceptFileDragDrop, TX_ICONS, MONOSPACE_FONT, webopen
 from electrum.logging import get_logger, Logger
 
 from .history_list import HistorySortModel
+
+
+if TYPE_CHECKING:
+    from electrum.wallet import Abstract_Wallet
+    from .main_window import ElectrumWindow
 
 _logger = get_logger(__name__)
 
@@ -354,7 +360,7 @@ class TokenHistoryList(MyTreeView):
         tx = self.wallet.db.get_token_tx(tx_item['txid'])
         if not tx:
             return
-        self.parent.show_token_transaction(tx_item, token)
+        self.parent.show_token_transaction(tx, tx_item, token)
 
     def create_menu(self, position: QPoint):
         org_idx: QModelIndex = self.indexAt(position)

@@ -96,8 +96,7 @@ class TokenAddDialog(QDialog, MessageBoxMixin):
             if not name or not symbol or not isinstance(decimals, int) or decimals is None:
                 self.show_message('token info not valid: {} {} {}'.format(name, symbol, decimals))
                 return
-            balance = self.parent().network.run_from_another_thread(self.parent().network.request_token_balance(bind_addr, contract_addr))
-            token = [contract_addr, bind_addr, name, symbol, decimals, balance]
+            token = Token(contract_addr, bind_addr, name, symbol, decimals, 0)
             self.parent().set_token(token)
         except BaseException as e:
             import traceback, sys
@@ -109,7 +108,7 @@ class TokenInfoLayout(QGridLayout):
     def __init__(self, dialog, token):
         """
         :type dialog: QDialog
-        :type token: List
+        :type token: Token
         :type callback: func
         """
         QGridLayout.__init__(self)
@@ -170,7 +169,7 @@ class TokenInfoDialog(QDialog, MessageBoxMixin):
     def __init__(self, parent, token):
         """
         :type parent: ElectrumWindow
-        :type token: List
+        :type token: Token
         """
         QDialog.__init__(self, parent=parent)
         self.setMinimumSize(500, 200)
@@ -186,7 +185,7 @@ class TokenSendLayout(QGridLayout):
     def __init__(self, dialog, token, send_callback):
         """
         :type dialog: QDialog
-        :type token: List
+        :type token: Token
         :type callback: func
         """
         QGridLayout.__init__(self)
@@ -294,7 +293,7 @@ class TokenSendDialog(QDialog, MessageBoxMixin):
     def __init__(self, parent, token):
         """
         :type parent: ElectrumWindow
-        :type token: List
+        :type token: Token
         """
         QDialog.__init__(self, parent=parent)
         self.token = token

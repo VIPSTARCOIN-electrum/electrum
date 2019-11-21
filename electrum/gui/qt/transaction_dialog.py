@@ -84,14 +84,13 @@ def show_transaction(tx: Transaction, *, parent: 'ElectrumWindow', invoice=None,
     else:
         d.show()
 
-def show_token_transaction(tx_item, parent, token, prompt_if_unsaved=False):
+def show_token_transaction(tx: Transaction, tx_item, parent: 'ElectrumWindow', token, prompt_if_unsaved=False):
     try:
-        d = TokenTxDialog(tx_item, parent, token, prompt_if_unsaved)
+        d = TokenTxDialog(tx, parent=parent, tx_item=tx_item, token=token, prompt_if_unsaved=prompt_if_unsaved)
     except SerializationError as e:
         _logger.exception('unable to deserialize the token transaction')
         parent.show_critical(_("Electrum was unable to deserialize the transaction:") + "\n" + str(e))
     else:
-        dialogs.append(d)
         d.show()
 
 
@@ -587,33 +586,23 @@ class BaseTxDialog(QDialog, MessageBoxMixin):
         self.setWindowTitle(_("Create transaction") if not self.finalized else _("Transaction"))
 
 
-class TokenTxDialog(QDialog, MessageBoxMixin):
+class BaseTokenTxDialog(QDialog, MessageBoxMixin):
 
-    def __init__(self, tx_item, parent, token, prompt_if_unsaved):
+    def __init__(self, *, parent: 'ElectrumWindow', tx_item, token, prompt_if_unsaved):
         '''Transactions in the wallet will show their description.
         Pass desc to give a description for txs not yet in the wallet.
         '''
         # We want to be a top-level window
         QDialog.__init__(self, parent=None)
-        self.main_window = parent  # type: ElectrumWindow
+        self.tx = None  # type: Optional[Transaction]
+        self.main_window = parent
+        self.config = parent.config
         self.wallet = parent.wallet
-        self.tx_item = tx_item
         self.token = token
+        self.tx_item = tx_item
         self.prompt_if_unsaved = prompt_if_unsaved
         self.saved = False
-        # Take a copy; it might get updated in the main window by
-        # e.g. the FX plugin.  If this happens during or after a long
-        # sign operation the signatures are lost.
-        self.tx = tx = copy.deepcopy(self.wallet.db.get_token_tx(tx_item['txid']))  # type: Transaction
-        try:
-            self.tx.deserialize()
-        except BaseException as e:
-            raise SerializationError(e)
 
-        # if the wallet can populate the inputs with more info, do it now.
-        # as a result, e.g. we might learn an imported address tx is segwit,
-        # in which case it's ok to display txid
-        tx.add_inputs_info(self.wallet)
 
         self.setMinimumWidth(950)
         self.setWindowTitle(_("Token Transaction"))
@@ -630,42 +619,56 @@ class TokenTxDialog(QDialog, MessageBoxMixin):
         vbox.addWidget(self.tx_hash_e)
 
         self.add_tx_stats(vbox)
+
         vbox.addSpacing(10)
-        self.add_io(vbox)
+
+        self.inputs_header = QLabel()
+        vbox.addWidget(self.inputs_header)
+        self.inputs_textedit = QTextEditWithDefaultSize()
+        vbox.addWidget(self.inputs_textedit)
 
         self.save_button = b = QPushButton(_("Save"))
-        save_button_disabled = not tx.is_complete()
-        b.setDisabled(save_button_disabled)
-        if save_button_disabled:
-            b.setToolTip(SAVE_BUTTON_DISABLED_TOOLTIP)
-        else:
-            b.setToolTip(SAVE_BUTTON_ENABLED_TOOLTIP)
         b.clicked.connect(self.save)
-
-        self.export_button = b = QPushButton(_("Export"))
-        b.clicked.connect(self.export)
 
         self.cancel_button = b = QPushButton(_("Close"))
         b.clicked.connect(self.close)
         b.setDefault(True)
 
-        self.qr_button = b = QPushButton()
-        b.setIcon(read_QIcon(qr_icon))
-        b.clicked.connect(self.show_qr)
+        self.export_actions_menu = export_actions_menu = QMenu()
+        self.add_export_actions_to_menu(export_actions_menu)
+        export_actions_menu.addSeparator()
 
-        self.copy_button = CopyButton(lambda: str(tx), parent.app)
-
+        self.export_actions_button = QToolButton()
+        self.export_actions_button.setText(_("Export"))
+        self.export_actions_button.setMenu(export_actions_menu)
+        self.export_actions_button.setPopupMode(QToolButton.InstantPopup)
+        self.buttons = [self.cancel_button]
         # Transaction sharing buttons
-        self.sharing_buttons = [self.copy_button, self.qr_button, self.export_button, self.save_button]
+        self.sharing_buttons = [self.export_actions_button, self.save_button]
 
         run_hook('transaction_dialog', self)
 
-        hbox = QHBoxLayout()
+        self.hbox = hbox = QHBoxLayout()
         hbox.addLayout(Buttons(*self.sharing_buttons))
         hbox.addStretch(1)
-        hbox.addLayout(Buttons(self.cancel_button))
+        hbox.addLayout(Buttons(*self.buttons))
         vbox.addLayout(hbox)
-        self.update()
+
+        dialogs.append(self)
+
+    def set_tx(self, tx: 'Transaction'):
+        # Take a copy; it might get updated in the main window by
+        # e.g. the FX plugin.  If this happens during or after a long
+        # sign operation the signatures are lost.
+        self.tx = tx = copy.deepcopy(tx)
+        try:
+            self.tx.deserialize()
+        except BaseException as e:
+            raise SerializationError(e)
+        # if the wallet can populate the inputs with more info, do it now.
+        # as a result, e.g. we might learn an imported address tx is segwit,
+        # or that a beyond-gap-limit address is is_mine
+        tx.add_info_from_wallet(self.wallet)
 
     def closeEvent(self, event):
         if (self.prompt_if_unsaved and not self.saved
@@ -682,8 +685,36 @@ class TokenTxDialog(QDialog, MessageBoxMixin):
         # Override escape-key to close normally (and invoke closeEvent)
         self.close()
 
-    def show_qr(self):
-        text = bfh(str(self.tx))
+    def add_export_actions_to_menu(self, menu: QMenu, *, gettx: Callable[[], Transaction] = None) -> None:
+        if gettx is None:
+            gettx = lambda: None
+
+        action = QAction(_("Copy to clipboard"), self)
+        action.triggered.connect(lambda: self.copy_to_clipboard(tx=gettx()))
+        menu.addAction(action)
+
+        qr_icon = "qrcode_white.png" if ColorScheme.dark_scheme else "qrcode.png"
+        action = QAction(read_QIcon(qr_icon), _("Show as QR code"), self)
+        action.triggered.connect(lambda: self.show_qr(tx=gettx()))
+        menu.addAction(action)
+
+        action = QAction(_("Export to file"), self)
+        action.triggered.connect(lambda: self.export_to_file(tx=gettx()))
+        menu.addAction(action)
+
+    def copy_to_clipboard(self, *, tx: Transaction = None):
+        if tx is None:
+            tx = self.tx
+        self.main_window.app.clipboard().setText(str(tx))
+
+    def show_qr(self, *, tx: Transaction = None):
+        if tx is None:
+            tx = self.tx
+        tx = copy.deepcopy(tx)  # make copy as we mutate tx
+        if isinstance(tx, PartialTransaction):
+            # this makes QR codes a lot smaller (or just possible in the first place!)
+            tx.convert_all_utxos_to_witness_utxos()
+        text = tx.serialize_as_bytes()
         text = base_encode(text, base=43)
         try:
             self.main_window.show_qrcode(text, 'Transaction', parent=self)
@@ -691,7 +722,7 @@ class TokenTxDialog(QDialog, MessageBoxMixin):
             self.show_error(_('Failed to display QR code.') + '\n' +
                             _('Transaction is too large in size.'))
         except Exception as e:
-            self.show_error(_('Failed to display QR code.') + '\n' + str(e))
+            self.show_error(_('Failed to display QR code.') + '\n' + repr(e))
 
     def save(self):
         self.main_window.push_top_level_window(self)
@@ -700,29 +731,44 @@ class TokenTxDialog(QDialog, MessageBoxMixin):
             self.saved = True
         self.main_window.pop_top_level_window(self)
 
+    def export_to_file(self, *, tx: Transaction = None):
+        if tx is None:
+            tx = self.tx
+        if isinstance(tx, PartialTransaction):
+            tx.finalize_psbt()
+        if tx.is_complete():
+            name = 'signed_%s.txn' % (tx.txid()[0:8])
+        else:
+            name = self.wallet.basename() + time.strftime('-%Y%m%d-%H%M.psbt')
+        fileName = self.main_window.getSaveFileName(_("Select where to save your signed transaction"),
+                                                    name,
+                                                    TRANSACTION_FILE_EXTENSION_FILTER)
+        if not fileName:
+            return
+        with open(fileName, "w+") as f:
+            network_tx_hex = tx.serialize_to_network()
+            f.write(network_tx_hex + '\n')
 
-    def export(self):
-        name = 'signed_%s.txn' % (self.tx.txid()[0:8]) if self.tx.is_complete() else 'unsigned.txn'
-        fileName = self.main_window.getSaveFileName(_("Select where to save your signed transaction"), name, "*.txn")
-        if fileName:
-            with open(fileName, "w+") as f:
-                f.write(json.dumps(self.tx.as_dict(), indent=4) + '\n')
-            self.show_message(_("Transaction exported successfully"))
-            self.saved = True
+        self.show_message(_("Transaction exported successfully"))
+        self.saved = True
 
     def update(self):
+        if self.tx is None:
+            return
+        self.update_io()
         base_unit = self.main_window.base_unit()
+        format_amount = self.main_window.format_token_amount
         tx_details = self.wallet.get_tx_info(self.tx)
         tx_mined_status = tx_details.tx_mined_status
         exp_n = tx_details.mempool_depth_bytes
         size = self.tx.estimated_size()
         conf = '{}'.format(tx_mined_status.conf)
         token_unit = self.token.symbol
-        amount = self.main_window.format_token_amount(self.tx_item['amount'], self.token.decimals)
+        amount = format_amount(self.tx_item['amount'], self.token.decimals)
         self.tx_hash_e.setText(tx_details.txid or _('Unknown'))
-        conf_text = 'confirmation'
+        conf_text = _('confirmation')
         if conf != '1':
-            conf_text = 'confirmations'
+            conf_text = _('confirmations')
         self.status_label.setText(_('Status:') + ' ' + conf + ' ' + conf_text)
 #        self.status_label.setText(_('Status:') + ' ' + tx_details.status)
 
@@ -754,19 +800,25 @@ class TokenTxDialog(QDialog, MessageBoxMixin):
         size_str = _("Size:") + ' %d bytes'% size
         self.amount_label.setText(amount_str)
         self.size_label.setText(size_str)
+        self.save_button.setEnabled(tx_details.can_save_as_local)
+        if tx_details.can_save_as_local:
+            self.save_button.setToolTip(_("Save transaction offline"))
+        else:
+            self.save_button.setToolTip(_("Transaction already saved or not yet signed."))
+
         run_hook('transaction_dialog_update', self)
 
-    def add_io(self, vbox):
-        vbox.addWidget(QLabel(_("Token Transaction")))
+    def update_io(self):
+        self.inputs_header.setText(_("Token Transaction"))
 
-        i_text = QTextEditWithDefaultSize()
+        i_text = self.inputs_textedit
+        i_text.clear()
         i_text.setFont(QFont(MONOSPACE_FONT))
         i_text.setReadOnly(True)
         cursor = i_text.textCursor()
         cursor.insertText(self.tx_item['from_addr'] + ' -> ' + self.tx_item['to_addr'])
         cursor.insertBlock()
 
-        vbox.addWidget(i_text)
 
     def add_tx_stats(self, vbox):
         hbox_stats = QHBoxLayout()
@@ -804,10 +856,10 @@ class TokenTxDialog(QDialog, MessageBoxMixin):
 
         vbox.addLayout(hbox_stats)
 
-    def on_finalize(self):
-        pass  # overridden in subclass
+    def set_title(self):
+        self.setWindowTitle(_("Token transaction") if not self.finalized else _("Transaction"))
 
-    def update_fee_fields(self):
+    def on_finalize(self):
         pass  # overridden in subclass
 
 
@@ -825,6 +877,13 @@ class TxDialog(BaseTxDialog):
         self.set_tx(tx)
         self.update()
 
+
+
+class TokenTxDialog(BaseTokenTxDialog):
+    def __init__(self, tx: Transaction, *, parent: 'ElectrumWindow', tx_item, token, prompt_if_unsaved):
+        BaseTokenTxDialog.__init__(self, parent=parent, tx_item=tx_item, token=token, prompt_if_unsaved=prompt_if_unsaved)
+        self.set_tx(tx)
+        self.update()
 
 
 class PreviewTxDialog(BaseTxDialog, TxEditor):
