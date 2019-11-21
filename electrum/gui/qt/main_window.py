@@ -3119,7 +3119,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         try:
             datahex = 'a9059cbb{}{:064x}'.format(pay_to.zfill(64), amount)
             script = contract_script(gas_limit, gas_price, datahex, token.contract_addr, opcodes.OP_CALL)
-            outputs = [TxOutput(TYPE_SCRIPT, script, 0), ]
+            outputs = [PartialTxOutput(scriptpubkey=script, value=0)]
             tx_desc = _('Pay out {} {}').format(amount / (10 ** token.decimals), token.symbol)
             self._smart_contract_broadcast(outputs, tx_desc, gas_limit * gas_price,
                                            token.bind_addr, dialog, None, preview)
@@ -3130,10 +3130,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
     def _smart_contract_broadcast(self, outputs, desc, gas_fee, sender, dialog, broadcast_done=None, preview=False):
         coins = self.get_coins()
         try:
-            tx = self.wallet.make_unsigned_transaction(coins, outputs, None,
+            tx = self.wallet.make_unsigned_transaction(coins=coins,
+                                                       outputs=outputs,
+                                                       fee=None,
                                                        change_addr=sender,
                                                        gas_fee=gas_fee,
-                                                       sender=sender)
+                                                       sender=sender,
+                                                       is_sweep=False)
         except NotEnoughFunds:
             dialog.show_message(_("Insufficient funds"))
             return
@@ -3142,7 +3145,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             dialog.show_message(str(e))
             return
         if preview:
-            self.show_transaction(tx, desc)
+            self.show_transaction(tx)
             return
 
         fee = tx.get_fee()
@@ -3237,7 +3240,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         try:
             abi_encoded = vips_abi_encode(abi, args)
             script = contract_script(gas_limit, gas_price, abi_encoded, address, opcodes.OP_CALL)
-            outputs = [TxOutput(TYPE_SCRIPT, script, amount), ]
+            outputs = [PartialTxOutput(scriptpubkey=script, value=amount)]
             tx_desc = 'contract sendto {}'.format(self.smart_contracts[address][0])
             self._smart_contract_broadcast(outputs, tx_desc, gas_limit * gas_price, sender, dialog, None, preview)
         except (BaseException,) as e:
@@ -3258,7 +3261,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             if constructor:
                 abi_encoded = vips_abi_encode(constructor, args)
             script = contract_script(gas_limit, gas_price, bytecode + abi_encoded, None, opcodes.OP_CREATE)
-            outputs = [TxOutput(TYPE_SCRIPT, script, 0), ]
+            outputs = [PartialTxOutput(scriptpubkey=script, value=0)]
             self._smart_contract_broadcast(outputs, 'Create contract {}'.format(name), gas_limit * gas_price,
                                            sender, dialog, broadcast_done, preview)
         except (BaseException,) as e:

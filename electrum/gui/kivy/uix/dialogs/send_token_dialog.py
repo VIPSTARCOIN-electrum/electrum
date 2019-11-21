@@ -239,7 +239,7 @@ class SendTokenDialog(Factory.Popup):
 
     def do_send(self):
         from electrum.bitcoin import is_p2pkh, is_hash160, b58_address_to_hash160, bh2u, TYPE_SCRIPT
-        from electrum.transaction import opcodes, contract_script, TxOutput
+        from electrum.transaction import opcodes, contract_script, PartialTxOutput
         address = str(self.to_addr)
         if not address:
             self.app.show_error(_('Recipient not specified.') + ' ' + _('Please scan a Bitcoin address or a payment request'))
@@ -268,7 +268,7 @@ class SendTokenDialog(Factory.Popup):
         gas_limit = int(self.gas_limit)
         gas_price = int(float(self.gas_price) * (10 ** 8))
         script = contract_script(gas_limit, gas_price, datahex, self.contract_addr, opcodes.OP_CALL)
-        outputs = [TxOutput(TYPE_SCRIPT, script, 0), ]
+        outputs = [PartialTxOutput(scriptpubkey=script, value=0)]
         amount = sum(map(lambda x:x[2], outputs))
         self._do_send(amount, tx_desc, outputs, gas_limit * gas_price)
 
