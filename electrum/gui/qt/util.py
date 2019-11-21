@@ -50,6 +50,8 @@ pr_icons = {
 }
 
 
+# filter tx files in QFileDialog:
+TRANSACTION_FILE_EXTENSION_FILTER = "Transaction (*.txn *.psbt);;All files (*)"
 
 # note: this list needs to be kept in sync with another in kivy
 TX_ICONS = [
@@ -640,12 +642,16 @@ class MyTreeView(QTreeView):
         self.show_toolbar(not self.toolbar_shown, config)
 
     def add_copy_menu(self, menu, idx):
-        cc = menu.addMenu(_("Copy column"))
+        cc = menu.addMenu(_("Copy"))
         for column in self.Columns:
             column_title = self.model().horizontalHeaderItem(column).text()
             item_col = self.model().itemFromIndex(idx.sibling(idx.row(), column))
             column_data = item_col.text().strip()
-            cc.addAction(column_title, lambda t=column_data: self.parent.app.clipboard().setText(t))
+            cc.addAction(column_title, lambda t=column_data: self.place_text_on_clipboard(t))
+
+    def place_text_on_clipboard(self, text):
+        self.parent.app.clipboard().setText(text)
+
 
 class ButtonsWidget(QWidget):
 
@@ -853,13 +859,16 @@ def export_meta_gui(electrum_window, title, exporter):
 def get_parent_main_window(widget):
     """Returns a reference to the ElectrumWindow this widget belongs to."""
     from .main_window import ElectrumWindow
+    from .transaction_dialog import TxDialog
     for _ in range(100):
         if widget is None:
             return None
-        if not isinstance(widget, ElectrumWindow):
-            widget = widget.parentWidget()
-        else:
+        if isinstance(widget, ElectrumWindow):
             return widget
+        elif isinstance(widget, TxDialog):
+            return widget.main_window
+        else:
+            widget = widget.parentWidget()
     return None
 
 
@@ -875,22 +884,6 @@ def read_QIcon(icon_basename):
 def get_default_language():
     name = QLocale.system().name()
     return name if name in languages else 'en_UK'
-
-class FromList(QTreeWidget):
-    def __init__(self, parent, create_menu):
-        super().__init__(parent)
-        self.setHeaderHidden(True)
-        self.setMaximumHeight(300)
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(create_menu)
-        self.setUniformRowHeights(True)
-        # remove left margin
-        self.setRootIsDecorated(False)
-        self.setColumnCount(2)
-        self.header().setStretchLastSection(False)
-        sm = QHeaderView.ResizeToContents
-        self.header().setSectionResizeMode(0, sm)
-        self.header().setSectionResizeMode(1, sm)
 
 
 def char_width_in_lineedit() -> int:

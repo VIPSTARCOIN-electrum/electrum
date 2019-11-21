@@ -22,13 +22,13 @@ from kivy.lang import Builder
 from kivy.factory import Factory
 from kivy.utils import platform
 
-from electrum.bitcoin import TYPE_ADDRESS
 from electrum.util import profiler, parse_URI, format_time, InvalidPassword, NotEnoughFunds, Fiat
 from electrum.util import PR_TYPE_ONCHAIN, PR_TYPE_LN
 from electrum import bitcoin, constants
-from electrum.transaction import TxOutput, Transaction, tx_from_str
-from electrum.util import send_exception_to_crash_reporter, parse_URI, InvalidBitcoinURI
-from electrum.util import PR_UNPAID, PR_PAID, PR_UNKNOWN, PR_EXPIRED, PR_INFLIGHT, TxMinedInfo, get_request_status, pr_expiration_values
+from electrum.transaction import Transaction, tx_from_any, PartialTransaction, PartialTxOutput
+from electrum.util import (parse_URI, InvalidBitcoinURI, PR_PAID, PR_UNKNOWN, PR_EXPIRED,
+                           PR_INFLIGHT, TxMinedInfo, get_request_status, pr_expiration_values,
+                           maybe_extract_bolt11_invoice)
 from electrum.plugin import run_hook
 from electrum.wallet import InternalAddressCorruption
 from electrum import simple_config
@@ -211,6 +211,7 @@ class SendScreen(CScreen):
 
     def set_ln_invoice(self, invoice):
         try:
+            invoice = str(invoice).lower()
             lnaddr = lndecode(invoice, expected_hrp=constants.net.SEGWIT_HRP)
         except Exception as e:
             self.app.show_info(invoice + _(" is not a valid Lightning invoice: ") + repr(e)) # repr because str(Exception()) == ''
@@ -282,20 +283,17 @@ class SendScreen(CScreen):
             return
         # try to decode as transaction
         try:
-            raw_tx = tx_from_str(data)
-            tx = Transaction(raw_tx)
+            tx = tx_from_any(data)
             tx.deserialize()
         except:
             tx = None
         if tx:
             self.app.tx_dialog(tx)
             return
-        lower = data.lower()
-        if lower.startswith('lightning:ln'):
-            lower = lower[10:]
         # try to decode as URI/address
-        if lower.startswith('ln'):
-            self.set_ln_invoice(lower)
+        bolt11_invoice = maybe_extract_bolt11_invoice(data)
+        if bolt11_invoice is not None:
+            self.set_ln_invoice(bolt11_invoice)
         else:
             self.set_URI(data)
 
@@ -319,7 +317,7 @@ class SendScreen(CScreen):
             if not bitcoin.is_address(address):
                 self.app.show_error(_('Invalid Bitcoin Address') + ':\n' + address)
                 return
-            outputs = [TxOutput(TYPE_ADDRESS, address, amount)]
+            outputs = [PartialTxOutput.from_address_and_value(address, amount)]
             return self.app.wallet.create_invoice(outputs, message, self.payment_request, self.parsed_URI)
 
     def do_save(self):
@@ -359,11 +357,11 @@ class SendScreen(CScreen):
 
     def _do_pay_onchain(self, invoice, rbf):
         # make unsigned transaction
-        outputs = invoice['outputs']  # type: List[TxOutput]
+        outputs = invoice['outputs']  # type: List[PartialTxOutput]
         amount = sum(map(lambda x: x.value, outputs))
         coins = self.app.wallet.get_spendable_coins(None)
         try:
-            tx = self.app.wallet.make_unsigned_transaction(coins, outputs, None)
+            tx = self.app.wallet.make_unsigned_transaction(coins=coins, outputs=outputs)
         except NotEnoughFunds:
             self.app.show_error(_("Not enough funds"))
             return

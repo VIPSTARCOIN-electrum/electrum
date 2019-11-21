@@ -9,13 +9,13 @@ import threading
 import asyncio
 from typing import TYPE_CHECKING, Optional
 
-from electrum.bitcoin import TYPE_ADDRESS
 from electrum.storage import WalletStorage, StorageReadWriteError
 from electrum.wallet import Wallet, InternalAddressCorruption
-from electrum.util import profiler, InvalidPassword, send_exception_to_crash_reporter
 from electrum.plugin import run_hook
-from electrum.util import format_satoshis, format_satoshis_plain, format_token_plain, format_fee_satoshis, format_tokens
-from electrum.util import PR_UNPAID, PR_PAID, PR_EXPIRED, PR_FAILED, PR_INFLIGHT
+from electrum.util import (profiler, InvalidPassword, send_exception_to_crash_reporter,
+                           format_satoshis, format_satoshis_plain, format_fee_satoshis,
+                           format_tokens, format_token_plain, PR_PAID, PR_FAILED, 
+                           maybe_extract_bolt11_invoice)
 from electrum import blockchain
 from electrum.network import Network, TxBroadcastError, BestEffortRequestFailed
 from .i18n import _
@@ -412,7 +412,7 @@ class ElectrumWindow(App):
             self.send_screen.do_clear()
 
     def on_qr(self, data):
-        from electrum.bitcoin import base_decode, is_address
+        from electrum.bitcoin import is_address
         data = data.strip()
         if is_address(data):
             self.set_URI(data)
@@ -420,16 +420,14 @@ class ElectrumWindow(App):
         if data.startswith('vipstarcoin:'):
             self.set_URI(data)
             return
-        if data.startswith('ln'):
-            self.set_ln_invoice(data)
+        bolt11_invoice = maybe_extract_bolt11_invoice(data)
+        if bolt11_invoice is not None:
+            self.set_ln_invoice(bolt11_invoice)
             return
         # try to decode transaction
-        from electrum.transaction import Transaction
-        from electrum.util import bh2u
+        from electrum.transaction import tx_from_any
         try:
-            text = bh2u(base_decode(data, None, base=43))
-            tx = Transaction(text)
-            tx.deserialize()
+            tx = tx_from_any(data)
         except:
             tx = None
         if tx:
@@ -884,7 +882,7 @@ class ElectrumWindow(App):
             self._trigger_update_status()
 
     def get_max_amount(self):
-        from electrum.transaction import TxOutput
+        from electrum.transaction import PartialTxOutput
         if run_hook('abort_send', self):
             return ''
         inputs = self.wallet.get_spendable_coins(None)
@@ -895,9 +893,9 @@ class ElectrumWindow(App):
             addr = str(self.send_screen.screen.address)
         if not addr:
             addr = self.wallet.dummy_address()
-        outputs = [TxOutput(TYPE_ADDRESS, addr, '!')]
+        outputs = [PartialTxOutput.from_address_and_value(addr, '!')]
         try:
-            tx = self.wallet.make_unsigned_transaction(inputs, outputs)
+            tx = self.wallet.make_unsigned_transaction(coins=inputs, outputs=outputs)
         except NoDynamicFeeEstimates as e:
             Clock.schedule_once(lambda dt, bound_e=e: self.show_error(str(bound_e)))
             return ''
@@ -1306,7 +1304,7 @@ class ElectrumWindow(App):
             if not self.wallet.can_export():
                 return
             try:
-                key = str(self.wallet.export_private_key(addr, password)[0])
+                key = str(self.wallet.export_private_key(addr, password))
                 pk_label.data = key
             except InvalidPassword:
                 self.show_error("Invalid PIN")
