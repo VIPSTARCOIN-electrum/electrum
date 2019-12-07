@@ -21,6 +21,7 @@ from kivy.uix.image import Image
 from kivy.lang import Builder
 from kivy.factory import Factory
 from kivy.utils import platform
+from kivy.logger import Logger
 
 from electrum.util import profiler, parse_URI, format_time, InvalidPassword, NotEnoughFunds, Fiat
 from electrum.util import PR_TYPE_ONCHAIN, PR_TYPE_LN
@@ -366,7 +367,7 @@ class SendScreen(CScreen):
             self.app.show_error(_("Not enough funds"))
             return
         except Exception as e:
-            traceback.print_exc(file=sys.stdout)
+            Logger.exception('')
             self.app.show_error(repr(e))
             return
         if rbf:
@@ -385,14 +386,14 @@ class SendScreen(CScreen):
         if fee > feerate_warning * tx.estimated_size() / 1000:
             msg.append(_('Warning') + ': ' + _("The fee for this transaction seems unusually high."))
         msg.append(_("Enter your PIN code to proceed"))
-        self.app.protected('\n'.join(msg), self.send_tx, (tx, invoice))
+        self.app.protected('\n'.join(msg), self.send_tx, (tx,))
 
-    def send_tx(self, tx, invoice, password):
+    def send_tx(self, tx, password):
         if self.app.wallet.has_password() and password is None:
             return
         def on_success(tx):
             if tx.is_complete():
-                self.app.broadcast(tx, invoice)
+                self.app.broadcast(tx)
             else:
                 self.app.tx_dialog(tx)
         def on_failure(error):
