@@ -166,38 +166,49 @@ async def _usd_to_fiat(self, usd, ccy, res):
         res['JPY'] = btcjpy * btc
 
 
+class ATAIX(ExchangeBase):
+    async def get_rates(self, ccy):
+        if not ccy in ['BTC', 'EUR']:
+            _ccy = 'BTC'
+        else:
+            _ccy = ccy
+        json = await self.get_json('api.ataix.com', '/api/prices/VIPS-%s' % _ccy)
+        price = Decimal(json['result'][0]['last'])
+
+        res = {}
+        if _ccy != ccy:
+            await _btc_to_fiat(self, price, ccy, res)
+        else:
+            res = {ccy: price}
+        return res
+
+
 class CoinGecko(ExchangeBase):
 
     async def get_rates(self, ccy):
-        json = await self.get_json('api.coingecko.com', '/api/v3/simple/price?ids=vipstarcoin&vs_currencies=btc')
-        btc = Decimal(json['bitzeny']['btc'])
+        json = await self.get_json('api.coingecko.com',
+                                   '/api/v3/simple/price?ids=vipstarcoin&vs_currencies=%s' % ccy)
+        return {ccy: Decimal(json['vipstarcoin'][ccy.lower()])}
 
-        res = {}
-        if ccy == 'BTC':
-            res['BTC'] = btc
-        else:
-            await _btc_to_fiat(self, btc, ccy, res)
+    def history_ccys(self):
+        # CoinGecko seems to have historical data for all ccys it supports
+        return CURRENCIES[self.name()]
 
-        return res
+    async def request_history(self, ccy):
+        history = await self.get_json('api.coingecko.com',
+                                      '/api/v3/coins/vipstarcoin/market_chart?vs_currency=%s&days=max' % ccy)
+
+        return dict([(datetime.utcfromtimestamp(h[0]/1000).strftime('%Y-%m-%d'), h[1])
+                     for h in history['prices']])
 
 
 class CoinMarketCap(ExchangeBase):
 
     async def get_rates(self, ccy):
-        json = await self.get_json('api.coinmarketcap.com', '/v1/ticker/vipstar-coin/?convert=JPY')
-        btc = Decimal(json[0]['price_btc'])
-        usd = Decimal(json[0]['price_usd'])
-        jpy = Decimal(json[0]['price_jpy'])
-
-        res = {}
-        if ccy == 'BTC':
-            res['BTC'] = btc
-        elif ccy == 'USD':
-            res['USD'] = usd
-        elif ccy == 'JPY':
-            res['JPY'] = jpy
-
-        return res
+        _ccy = ccy.lower()
+        json = await self.get_json('api.coinmarketcap.com', '/v1/ticker/vipstar-coin/?convert=%s' % _ccy)
+        json_name = 'price_' + _ccy
+        return {ccy: Decimal(json[0][json_name])}
 
 
 class coincodex(ExchangeBase):
@@ -211,21 +222,6 @@ class coincodex(ExchangeBase):
             res['USD'] = usd
         else:
             await _usd_to_fiat(self, usd, ccy, res)
-
-        return res
-
-
-class CoinExchange(ExchangeBase):
-
-    async def get_rates(self, ccy):
-        json = await self.get_json('www.coinexchange.io', '/api/v1/getmarketsummary?market_id=812')
-        btc = Decimal(json['result']['LastPrice'])
-
-        res = {}
-        if ccy == 'BTC':
-            res['BTC'] = btc
-        else:
-            await _btc_to_fiat(self, btc, ccy, res)
 
         return res
 
