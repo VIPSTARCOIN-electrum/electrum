@@ -10,7 +10,8 @@ ZBAR_URL=https://sourceforge.net/projects/zbarw/files/$ZBAR_FILENAME/download
 ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 
 LIB_GCC_FILENAME=libgcc-6.3.0-1-mingw32-dll-1.tar.xz
-LIB_GCC_URL=https://netix.dl.sourceforge.net/project/mingw/MinGW/Base/gcc/Version6/gcc-6.3.0/$LIB_GCC_FILENAME
+# Original link: https://netix.dl.sourceforge.net/project/mingw/MinGW/Base/gcc/Version6/gcc-6.3.0/libgcc-6.3.0-1-mingw32-dll-1.tar.xz
+LIB_GCC_URL=https://raw.githubusercontent.com/VIPSTARCOIN-electrum/electrum-vips/master-3.3.x/contrib/build-wine/$LIB_GCC_FILENAME
 LIB_GCC_SHA256=8cbfa963f645cc0f81c08df2a3ecbcefc776606f0fb9db7a280d79f05209a1c3
 
 LIBUSB_FILENAME=libusb-1.0.22.7z
