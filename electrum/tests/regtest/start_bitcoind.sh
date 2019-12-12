@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 export HOME=~
 set -eux pipefail
-mkdir -p ~/.bitcoin
-cat > ~/.bitcoin/bitcoin.conf <<EOF
+mkdir -p ~/.VIPSTARCOIN
+cat > ~/.VIPSTARCOIN/VIPSTARCOIN.conf <<EOF
 regtest=1
 txindex=1
 printtoconsole=1
@@ -13,11 +13,11 @@ zmqpubrawblock=tcp://127.0.0.1:28332
 zmqpubrawtx=tcp://127.0.0.1:28333
 [regtest]
 rpcbind=0.0.0.0
-rpcport=18554
+rpcport=33916
 EOF
-rm -rf ~/.bitcoin/regtest
-screen -S bitcoind -X quit || true
-screen -S bitcoind -m -d bitcoind -regtest
+rm -rf ~/.VIPSTARCOIN/regtest
+screen -S VIPSTARCOINd -X quit || true
+screen -S VIPSTARCOINd -m -d VIPSTARCOINd -regtest
 sleep 6
-addr=$(bitcoin-cli getnewaddress)
-bitcoin-cli generatetoaddress 150 $addr > /dev/null
+addr=$(VIPSTARCOIN-cli getnewaddress)
+VIPSTARCOIN-cli generatetoaddress 150 $addr > /dev/null

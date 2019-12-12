@@ -129,7 +129,7 @@ class BitcoinTestnet(AbstractNet):
 class BitcoinRegtest(BitcoinTestnet):
 
     SEGWIT_HRP = "tvips"
-    GENESIS = "0000d068e1d30f79fb64446137106be9c6ee69a6a722295c131506b1ee09b77c"
+    GENESIS = "00054237d8dc843bd3f7ab66e2b608cfbfbbeed213e30eca9ca8c627dc8aace5"
     DEFAULT_SERVERS = read_json('servers_regtest.json', {})
     CHECKPOINTS = []
     LN_DNS_SEEDS = []

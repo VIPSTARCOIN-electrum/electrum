@@ -28,12 +28,12 @@ jobs:
   include:
     - name: "Regtest functional tests"
       before_install:
-        - sudo add-apt-repository -y ppa:bitcoin/bitcoin
-        - sudo apt-get -qq update
-        - sudo apt-get install -yq bitcoind
+        - wget https://github.com/y-chan/VIPSTARCOIN/releases/download/v1.0.2/VIPSTARCOIN-1.0.2-x86_64-linux-gnu.tar.gz
+        - tar -zxvf VIPSTARCOIN-1.0.2-x86_64-linux-gnu.tar.gz
+        - sudo cp bin/* /usr/bin
       install:
         - pip install -r contrib/requirements/requirements.txt
-        - pip install electrumx
+        - pip install git+https://github.com/VIPSTARCOIN-electrum/vipstarcoin-electrumx.git
       before_script:
           - electrum/tests/regtest/start_bitcoind.sh
           - electrum/tests/regtest/start_electrumx.sh
