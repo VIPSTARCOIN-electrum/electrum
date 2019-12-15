@@ -20,4 +20,4 @@ screen -S vipstarcoind -X quit || true
 screen -S vipstarcoind -m -d vipstarcoind -regtest
 sleep 6
 addr=$(vipstarcoin-cli getnewaddress)
-vipstarcoin-cli generatetoaddress 150 $addr > /dev/null
+vipstarcoin-cli generatetoaddress 1000 $addr > /dev/null
