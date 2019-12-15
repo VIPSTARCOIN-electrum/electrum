@@ -28,8 +28,8 @@ jobs:
   include:
     - name: "Regtest functional tests"
       before_install:
-        - wget https://github.com/y-chan/VIPSTARCOIN/releases/download/v1.0.2/VIPSTARCOIN-1.0.2-x86_64-linux-gnu.tar.gz
-        - tar -zxvf VIPSTARCOIN-1.0.2-x86_64-linux-gnu.tar.gz
+        - wget https://github.com/vipstar-dev/VIPSTARCOIN/releases/download/v1.1.6-beta/Unofficial_VIPS-1.1.6-x86_64-linux-gnu.tar.gz
+        - tar -zxvf Unofficial_VIPS-1.1.6-x86_64-linux-gnu.tar.gz
         - sudo cp bin/* /usr/bin
       install:
         - pip install -r contrib/requirements/requirements.txt

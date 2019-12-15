@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 export HOME=~
 set -eux pipefail
-mkdir -p ~/.VIPSTARCOIN
-cat > ~/.VIPSTARCOIN/VIPSTARCOIN.conf <<EOF
+mkdir -p ~/.vipstarcoin
+cat > ~/.vipstarcoin/VIPSTARCOIN.conf <<EOF
 regtest=1
 txindex=1
 printtoconsole=1
@@ -15,9 +15,9 @@ zmqpubrawtx=tcp://127.0.0.1:28333
 rpcbind=0.0.0.0
 rpcport=33916
 EOF
-rm -rf ~/.VIPSTARCOIN/regtest
-screen -S VIPSTARCOINd -X quit || true
-screen -S VIPSTARCOINd -m -d VIPSTARCOINd -regtest
+rm -rf ~/.vipstarcoin/regtest
+screen -S vipstarcoind -X quit || true
+screen -S vipstarcoind -m -d vipstarcoind -regtest
 sleep 6
-addr=$(VIPSTARCOIN-cli getnewaddress)
-VIPSTARCOIN-cli generatetoaddress 150 $addr > /dev/null
+addr=$(vipstarcoin-cli getnewaddress)
+vipstarcoin-cli generatetoaddress 150 $addr > /dev/null
