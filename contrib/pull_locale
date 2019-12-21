@@ -37,18 +37,18 @@ locale_file_name = 'locale/messages.pot'
 
 # Download & unzip
 print('Download translations')
-s = requests.request('GET', 'https://crowdin.com/backend/download/project/' + crowdin_identifier + '.zip').content
+s = requests.request('GET', 'https://github.com/VIPSTARCOIN-electrum/electrum-locale/archive/master.zip').content
 zfobj = zipfile.ZipFile(io.BytesIO(s))
 
 print('Unzip translations')
 for name in zfobj.namelist():
-    if not name.startswith('electrum-client/locale'):
+    if not name.startswith('electrum-locale-master/locale'):
         continue
     if name.endswith('/'):
-        if not os.path.exists(name[16:]):
-            os.mkdir(name[16:])
+        if not os.path.exists(name[23:]):
+            os.mkdir(name[23:])
     else:
-        with open(name[16:], 'wb') as output:
+        with open(name[23:], 'wb') as output:
             output.write(zfobj.read(name))
 
 # Convert .po to .mo
