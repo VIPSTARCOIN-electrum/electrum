@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from .util import ButtonsLineEdit, Buttons, CancelButton, MessageBoxMixin
 from .amountedit import AmountEdit
-from electrum.bitcoin import is_hash160, is_b58_address, b58_address_to_hash160, bh2u
+from electrum.bitcoin import is_hash160, is_b58_address, b58_address_to_hash160, bh2u, Token
 from electrum import constants
 from electrum.i18n import _
 from electrum.plugins.trezor.trezor import TrezorKeyStore
@@ -96,8 +96,7 @@ class TokenAddDialog(QDialog, MessageBoxMixin):
             if not name or not symbol or not isinstance(decimals, int) or decimals is None:
                 self.show_message('token info not valid: {} {} {}'.format(name, symbol, decimals))
                 return
-            balance = self.parent().network.run_from_another_thread(self.parent().network.request_token_balance(bind_addr, contract_addr))
-            token = [contract_addr, bind_addr, name, symbol, decimals, balance]
+            token = Token(contract_addr, bind_addr, name, symbol, decimals, 0)
             self.parent().set_token(token)
         except BaseException as e:
             import traceback, sys
