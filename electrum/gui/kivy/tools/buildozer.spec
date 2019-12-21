@@ -4,7 +4,7 @@
 title = Electrum for VIPSTARCOIN
 
 # (str) Package name
-package.name = Electrum
+package.name = Electrum_VIPS
 
 # (str) Package domain (needed for android/ios packaging)
 package.domain = org.electrum_vips
