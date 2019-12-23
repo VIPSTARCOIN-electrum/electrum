@@ -40,7 +40,10 @@ from .wallet import (Imported_Wallet, Standard_Wallet, Multisig_Wallet,
 from .storage import (WalletStorage, STO_EV_USER_PW, STO_EV_XPUB_PW,
                       get_derivation_used_for_hw_device_encryption)
 from .i18n import _ as q_
-from .gui.kivy.i18n import _ as k_
+try:
+    from .gui.kivy.i18n import _ as k_
+except:
+    from .i18n import _ as k_
 from .util import UserCancelled, InvalidPassword, WalletFileException
 from .simple_config import SimpleConfig
 from .plugin import Plugins, HardwarePluginLibraryUnavailable
