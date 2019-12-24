@@ -5,6 +5,7 @@ mkdir -p ~/.vipstarcoin
 cat > ~/.vipstarcoin/VIPSTARCOIN.conf <<EOF
 regtest=1
 txindex=1
+logevents=1
 printtoconsole=1
 rpcuser=doggman
 rpcpassword=donkey
@@ -20,4 +21,4 @@ screen -S vipstarcoind -X quit || true
 screen -S vipstarcoind -m -d vipstarcoind -regtest
 sleep 6
 addr=$(vipstarcoin-cli getnewaddress)
-vipstarcoin-cli generatetoaddress 1000 $addr > /dev/null
+vipstarcoin-cli generatetoaddress 550 $addr > /dev/null
