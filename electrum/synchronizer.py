@@ -31,8 +31,8 @@ import logging
 
 from aiorpcx import TaskGroup, run_in_thread, RPCError
 
-from .transaction import Transaction
-from .util import bh2u, make_aiohttp_session, NetworkJobOnDefaultServer, to_bytes
+from .transaction import Transaction, PartialTransaction
+from .util import bh2u, make_aiohttp_session, NetworkJobOnDefaultServer
 from .bitcoin import address_to_scripthash, is_address, hash160_to_p2pkh, b58_address_to_hash160
 from .blockchain import TOKEN_TRANSFER_TOPIC
 from .network import UntrustedServerReturnedError
@@ -262,8 +262,9 @@ class Synchronizer(SynchronizerBase):
         for tx_hash, tx_height in hist:
             if tx_hash in self.requested_tx:
                 continue
-            if self.wallet.db.get_transaction(tx_hash):
-                continue
+            tx = self.wallet.db.get_transaction(tx_hash)
+            if tx and not isinstance(tx, PartialTransaction):
+                continue  # already have complete tx
             transaction_hashes.append(tx_hash)
             self.requested_tx[tx_hash] = tx_height
 

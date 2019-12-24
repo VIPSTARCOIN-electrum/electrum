@@ -334,7 +334,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
         return []
 
     def basename(self) -> str:
-        return os.path.basename(self.storage.path)
+        return self.storage.basename()
 
     def test_addresses_sanity(self) -> None:
         addrs = self.get_receiving_addresses()
@@ -357,7 +357,9 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
     def is_deterministic(self) -> bool:
         return self.keystore.is_deterministic()
 
-    def set_label(self, name, text = None):
+    def set_label(self, name: str, text: str = None) -> bool:
+        if not name:
+            return False
         changed = False
         old_text = self.labels.get(name)
         if text:
@@ -466,12 +468,14 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
         exp_n = None
         can_broadcast = False
         can_bump = False
-        can_save_as_local = False
-        label = ''
         tx_hash = tx.txid()
+        tx_we_already_have_in_db = self.db.get_transaction(tx_hash)
+        can_save_as_local = (is_relevant and tx.txid() is not None
+                             and (tx_we_already_have_in_db is None or not tx_we_already_have_in_db.is_complete()))
+        label = ''
         tx_mined_status = self.get_tx_height(tx_hash)
         if tx.is_complete():
-            if self.db.get_transaction(tx_hash):
+            if tx_we_already_have_in_db:
                 label = self.get_label(tx_hash)
                 if tx_mined_status.height > 0:
                     if tx_mined_status.conf:
@@ -494,7 +498,6 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
             else:
                 status = _("Signed")
                 can_broadcast = self.network is not None
-                can_save_as_local = is_relevant
         else:
             s, r = tx.signature_count()
             status = _("Unsigned") if s == 0 else _('Partially signed') + ' (%d/%d)'%(s,r)
@@ -692,6 +695,10 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
                 prevouts_and_values = self.db.get_prevouts_by_scripthash(scripthash)
                 relevant_txs += [prevout.txid.hex() for prevout, v in prevouts_and_values]
                 total_received = sum([v for prevout, v in prevouts_and_values])
+                # check that there is at least one TXO, and that they pay enough.
+                # note: "at least one TXO" check is needed for zero amount invoice (e.g. OP_RETURN)
+                if len(prevouts_and_values) == 0:
+                    return False, []
                 if total_received < invoice_amt:
                     return False, []
         return True, relevant_txs
@@ -1574,7 +1581,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
         timestamp = r.get('time', 0)
         if timestamp and type(timestamp) != int:
             timestamp = 0
-        exp = r.get('exp', 0)
+        exp = r.get('exp', 0) or 0
         paid, conf = self.get_payment_status(address, amount)
         if not paid:
             if exp > 0 and time.time() > timestamp + exp:
@@ -1749,7 +1756,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
             self.keystore.check_password(password)
         self.storage.check_password(password)
 
-    def update_password(self, old_pw, new_pw, encrypt_storage=False):
+    def update_password(self, old_pw, new_pw, *, encrypt_storage: bool = True):
         if old_pw is None and self.has_password():
             raise InvalidPassword()
         self.check_password(old_pw)
