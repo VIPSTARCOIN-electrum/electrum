@@ -9,7 +9,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtGui import *
 from .util import ButtonsLineEdit, Buttons, CancelButton, MessageBoxMixin
 from .amountedit import AmountEdit
-from electrum.bitcoin import is_hash160, is_b58_address, b58_address_to_hash160, bh2u
+from electrum.bitcoin import is_hash160, is_b58_address, b58_address_to_hash160, bh2u, Token
 from electrum import constants
 from electrum.i18n import _
 from electrum.plugins.trezor.trezor import TrezorKeyStore
