@@ -351,7 +351,7 @@ class BaseWizard(Logger):
             self.choose_hw_device(purpose, storage=storage)
             return
         except OutdatedHwFirmwareException as e:
-            if self.question(e.text_ignore_old_fw_and_continue(), title=_("Outdated device firmware")):
+            if self.question(e.text_ignore_old_fw_and_continue(), title=self._("Outdated device firmware")):
                 self.plugin.set_ignore_outdated_fw()
                 # will need to re-pair
                 devmgr = self.plugins.device_manager
