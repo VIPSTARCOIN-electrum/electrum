@@ -1294,7 +1294,8 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
                                         outputs=fixed_outputs,
                                         change_addrs=change_addrs,
                                         fee_estimator_vb=fee_estimator,
-                                        dust_threshold=self.dust_threshold())
+                                        dust_threshold=self.dust_threshold(),
+                                        gas_fee=0)
         except NotEnoughFunds as e:
             raise CannotBumpFee(e)
 
