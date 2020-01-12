@@ -79,7 +79,7 @@ class TokenAddDialog(QDialog, MessageBoxMixin):
     def __init__(self, parent):
         """
         :type parent: ElectrumWindow
-        :type token: List
+        :type token: Token
         """
         QDialog.__init__(self, parent=parent)
         self.setMinimumSize(500, 100)
@@ -210,7 +210,7 @@ class TokenSendLayout(QGridLayout):
         self.addWidget(self.address_to_e, 2, 1, 1, -1)
 
         amount_lb = QLabel(_("Amount:"))
-        self.amount_e = AmountEdit(lambda: token.symbol, False, None, token.decimals, 0)
+        self.amount_e = AmountEdit(lambda: self.token.symbol, False, None, self.token.decimals, 0)
         self.addWidget(amount_lb, 3, 0)
         self.addWidget(self.amount_e, 3, 1, 1, -1)
 
@@ -301,7 +301,7 @@ class TokenSendDialog(QDialog, MessageBoxMixin):
         if not token:
             self.dialog.show_message("Empty data")
             return
-        self.setWindowTitle(_('Send') + " " + token.symbol)
+        self.setWindowTitle(_('Send') + " " + self.token.name)
         layout = TokenSendLayout(self, token, self.do_send)
         self.setLayout(layout)
 

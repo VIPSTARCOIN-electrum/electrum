@@ -308,7 +308,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
 
     def start_network(self, network):
         AddressSynchronizer.start_network(self, network)
-        if self.lnworker:
+        if self.lnworker and network:
             network.maybe_init_lightning()
             self.lnworker.start_network(network)
 
@@ -891,7 +891,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
                 if delta and 0 < delta < 4 * 10 ** 7:
                     return _('contract gas refund')
                 return _('stake mined')
-            elif tx.inputs()[0].is_coinbase():
+            elif tx.inputs()[0].is_coinbase_input():
                 is_relevant, is_mine, delta, fee = self.get_wallet_delta(tx)
                 if delta and 0 < delta < 4 * 10 ** 7:
                     return _('contract gas refund')
@@ -915,7 +915,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
         try:
             tx = self.db.get_transaction(tx_hash) or self.db.get_token_tx(tx_hash)
             if tx is not None:
-                is_mined = tx.inputs()[0].is_coinbase()
+                is_mined = tx.inputs()[0].is_coinbase_input()
                 is_staked = tx.outputs()[0].is_coinstake()
         except (BaseException,) as e:
             self.logger.info(f'get_tx_status {repr(e)}')
@@ -1046,7 +1046,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
 
         # Fee estimator
         if fee is None:
-            fee_estimator = lambda size: self.config.estimate_fee(size) + gas_fee
+            fee_estimator = self.config.estimate_fee
         elif isinstance(fee, Number):
             fee_estimator = lambda size: fee
         elif callable(fee):
@@ -1091,6 +1091,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
                                       change_addrs=change_addrs,
                                       fee_estimator_vb=fee_estimator,
                                       dust_threshold=self.dust_threshold(),
+                                      gas_fee=gas_fee,
                                       sender=sender)
         else:
             # "spend max" branch

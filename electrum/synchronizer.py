@@ -364,15 +364,6 @@ class Synchronizer(SynchronizerBase):
         finally:
             self._requests_answered += 1
         tx = Transaction(raw_tx)
-        try:
-            tx.deserialize()  # see if raises
-        except Exception as e:
-            # possible scenarios:
-            # 1: server is sending garbage
-            # 2: there is a bug in the deserialization code
-            # 3: there was a segwit-like upgrade that changed the tx structure
-            #    that we don't know about
-            raise SynchronizerFailure(f"cannot deserialize transaction {tx_hash}") from e
         if tx_hash != tx.txid():
             raise SynchronizerFailure(f"received tx does not match expected txid ({tx_hash} != {tx.txid()})")
         tx_height = self.requested_tx.pop(tx_hash)
@@ -405,7 +396,7 @@ class Synchronizer(SynchronizerBase):
     async def _get_token_transaction(self, tx_hash, *, allow_server_not_finding_tx=False):
         self._token_requests_sent += 1
         try:
-            result = await self.network.get_transaction(tx_hash)
+            raw_tx = await self.network.get_transaction(tx_hash)
         except UntrustedServerReturnedError as e:
             # most likely, "No such mempool or blockchain transaction"
             if allow_server_not_finding_tx:
@@ -415,7 +406,7 @@ class Synchronizer(SynchronizerBase):
                 raise
         finally:
             self._token_requests_answered += 1
-        tx = Transaction(result)
+        tx = Transaction(raw_tx)
         try:
             tx.deserialize()  # see if raises
         except Exception as e:
@@ -429,7 +420,7 @@ class Synchronizer(SynchronizerBase):
             raise SynchronizerFailure(f"received tx does not match expected txid ({tx_hash} != {tx.txid()})")
         tx_height = self.requested_token_txs.pop(tx_hash)
         self.wallet.receive_token_tx_callback(tx_hash, tx, tx_height)
-        self.logger.info(f"received tx {tx_hash} height: {tx_height} bytes: {len(tx.raw)}")
+        self.logger.info(f"received tx {tx_hash} height: {tx_height} bytes: {len(raw_tx)}")
         # callbacks
         self.wallet.network.trigger_callback('new_token_transaction', tx)
         if not self.requested_token_txs and not self.requested_tx_receipt:

@@ -225,7 +225,7 @@ class CoinChooserBase(Logger):
     def _construct_tx_from_selected_buckets(self, *, buckets: Sequence[Bucket],
                                             base_tx: PartialTransaction, change_addrs,
                                             fee_estimator_w, dust_threshold,
-                                            base_weight) -> Tuple[PartialTransaction, List[PartialTxOutput]]:
+                                            base_weight, gas_fee) -> Tuple[PartialTransaction, List[PartialTxOutput]]:
         # make a copy of base_tx so it won't get mutated
         tx = PartialTransaction.from_io(base_tx.inputs()[:], base_tx.outputs()[:])
 
@@ -241,7 +241,7 @@ class CoinChooserBase(Logger):
 
         # This takes a count of change outputs and returns a tx fee
         output_weight = 4 * Transaction.estimated_output_size(change_addrs[0])
-        fee_estimator_numchange = lambda count: fee_estimator_w(tx_weight + count * output_weight)
+        fee_estimator_numchange = lambda count: fee_estimator_w(tx_weight + count * output_weight) + gas_fee
         change = self._change_outputs(tx, change_addrs, fee_estimator_numchange, dust_threshold)
         tx.add_outputs(change)
 
@@ -269,7 +269,7 @@ class CoinChooserBase(Logger):
 
     def make_tx(self, *, coins: Sequence[PartialTxInput], inputs: List[PartialTxInput],
                 outputs: List[PartialTxOutput], change_addrs: Sequence[str],
-                fee_estimator_vb: Callable, dust_threshold: int, sender=None) -> PartialTransaction:
+                fee_estimator_vb: Callable, dust_threshold: int, gas_fee: int, sender=None) -> PartialTransaction:
         """Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
         the transaction) it is kept, otherwise none is sent and it is
@@ -312,7 +312,7 @@ class CoinChooserBase(Logger):
             # note re performance: so far this was constant time
             # what follows is linear in len(buckets)
             total_weight = self._get_tx_weight(buckets, base_weight=base_weight)
-            return total_input >= spent_amount + fee_estimator_w(total_weight)
+            return total_input >= spent_amount + fee_estimator_w(total_weight) + gas_fee
 
         def tx_from_buckets(buckets):
             return self._construct_tx_from_selected_buckets(buckets=buckets,
@@ -320,7 +320,8 @@ class CoinChooserBase(Logger):
                                                             change_addrs=change_addrs,
                                                             fee_estimator_w=fee_estimator_w,
                                                             dust_threshold=dust_threshold,
-                                                            base_weight=base_weight)
+                                                            base_weight=base_weight,
+                                                            gas_fee=gas_fee)
 
         # Collect the coins into buckets
         all_buckets = self.bucketize_coins(coins, fee_estimator_vb=fee_estimator_vb)
@@ -479,7 +480,7 @@ class CoinChooserVIPSTARCOIN(CoinChooserPrivacy):
 
     def make_tx(self, *, coins: Sequence[PartialTxInput], inputs: List[PartialTxInput],
                 outputs: List[PartialTxOutput], change_addrs: Sequence[str],
-                fee_estimator_vb: Callable, dust_threshold: int, sender=None) -> PartialTransaction:
+                fee_estimator_vb: Callable, dust_threshold: int, gas_fee: int, sender=None):
         coins = list(coins)
         if sender is not None:
             found = False
@@ -490,7 +491,7 @@ class CoinChooserVIPSTARCOIN(CoinChooserPrivacy):
                     found = True
                     break
             if not found:
-                raise Exception(_('Sender address has no UTXO, you must to send 0.2 VIPS or more to Sender address.'))
+                raise BaseException(_('Sender address has no UTXO, you must to send 0.2 VIPS or more to Sender address.'))
         return super().make_tx(
             coins=coins,
             inputs=inputs,
@@ -498,6 +499,7 @@ class CoinChooserVIPSTARCOIN(CoinChooserPrivacy):
             change_addrs=change_addrs,
             fee_estimator_vb=fee_estimator_vb,
             dust_threshold=dust_threshold,
+            gas_fee=gas_fee,
             sender=sender)
 
 

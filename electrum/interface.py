@@ -36,7 +36,7 @@ import itertools
 import logging
 
 import aiorpcx
-from aiorpcx import RPCSession, Notification, NetAddress
+from aiorpcx import RPCSession, Notification, NetAddress, NewlineFramer
 from aiorpcx.curio import timeout_after, TaskTimeout
 from aiorpcx.jsonrpc import JSONRPC, CodeMessageError
 from aiorpcx.rawsocket import RSClient
@@ -61,6 +61,8 @@ if TYPE_CHECKING:
 ca_path = certifi.where()
 
 BUCKET_NAME_OF_ONION_SERVERS = 'onion'
+
+MAX_INCOMING_MSG_SIZE = 1_000_000  # in bytes
 
 
 class NetworkTimeout:
@@ -157,6 +159,10 @@ class NotificationSession(RPCSession):
         if self.interface.debug or self.interface.network.debug:
             self.interface.logger.debug(msg)
 
+    def default_framer(self):
+        # overridden so that max_size can be customized
+        return NewlineFramer(max_size=MAX_INCOMING_MSG_SIZE)
+
 
 class NetworkException(Exception): pass
 
@@ -174,6 +180,8 @@ class RequestTimedOut(GracefulDisconnect):
     def __str__(self):
         return _("Network request timed out.")
 
+
+class RequestCorrupted(GracefulDisconnect): pass
 
 class ErrorParsingSSLCert(Exception): pass
 class ErrorGettingSSLCertFromServer(Exception): pass
@@ -252,6 +260,9 @@ class Interface(Logger):
 
     def diagnostic_name(self):
         return str(NetAddress(self.host, self.port))
+
+    def __str__(self):
+        return f"<Interface {self.diagnostic_name()}>"
 
     def _set_proxy(self, proxy: dict):
         if proxy:
@@ -372,7 +383,13 @@ class Interface(Logger):
         try:
             await self.open_session(ssl_context)
         except (asyncio.CancelledError, ConnectError, aiorpcx.socks.SOCKSError) as e:
-            self.logger.info(f'disconnecting due to: {repr(e)}')
+            # make SSL errors for main interface more visible (to help servers ops debug cert pinning issues)
+            if (isinstance(e, ConnectError) and isinstance(e.__cause__, ssl.SSLError)
+                    and self.is_main_server() and not self.network.auto_connect):
+                self.logger.warning(f'Cannot connect to main server due to SSL error '
+                                    f'(maybe cert changed compared to "{self.cert_path}"). Exc: {repr(e)}')
+            else:
+                self.logger.info(f'disconnecting due to: {repr(e)}')
             return
 
     def _mark_ready(self) -> None:
