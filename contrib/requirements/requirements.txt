@@ -16,3 +16,4 @@ vips_hash
 vips_utils
 vips_abi
 pysha3
+attrs
