@@ -84,7 +84,7 @@ if [[ $1 == "init" ]]; then
 	$bob setconfig --offline lightning_listen localhost:9735
     else
         echo "funding $2"
-        $bitcoin_cli sendtoaddress $($agent getunusedaddress -o) 1
+        $bitcoin_cli sendtoaddress $($agent getunusedaddress -o) 10
     fi
 fi
 
@@ -108,19 +108,19 @@ fi
 
 if [[ $1 == "open" ]]; then
     bob_node=$($bob nodeid)
-    channel_id1=$($alice open_channel $bob_node 0.002 --push_amount 0.001)
-    channel_id2=$($carol open_channel $bob_node 0.002 --push_amount 0.001)
+    channel_id1=$($alice open_channel $bob_node 0.02 --push_amount 0.01)
+    channel_id2=$($carol open_channel $bob_node 0.02 --push_amount 0.01)
     echo "mining 3 blocks"
     new_blocks 3
     sleep 10 # time for channelDB
 fi
 
 if [[ $1 == "alice_pays_carol" ]]; then
-    request=$($carol add_lightning_request 0.0001 -m "blah")
+    request=$($carol add_lightning_request 0.001 -m "blah")
     $alice lnpay $request
     carol_balance=$($carol list_channels | jq -r '.[0].local_balance')
     echo "carol balance: $carol_balance"
-    if [[ $carol_balance != 110000 ]]; then
+    if [[ $carol_balance != 1100000 ]]; then
         exit 1
     fi
 fi
@@ -139,38 +139,38 @@ fi
 
 
 if [[ $1 == "breach" ]]; then
-    wait_for_balance alice 1
+    wait_for_balance alice 10
     echo "alice opens channel"
     bob_node=$($bob nodeid)
-    channel=$($alice open_channel $bob_node 0.15)
+    channel=$($alice open_channel $bob_node 1.5)
     new_blocks 3
     wait_until_channel_open alice
-    request=$($bob add_lightning_request 0.01 -m "blah")
+    request=$($bob add_lightning_request 0.1 -m "blah")
     echo "alice pays"
     $alice lnpay $request
     sleep 2
     ctx=$($alice get_channel_ctx $channel)
-    request=$($bob add_lightning_request 0.01 -m "blah2")
+    request=$($bob add_lightning_request 0.1 -m "blah2")
     echo "alice pays again"
     $alice lnpay $request
     echo "alice broadcasts old ctx"
     $bitcoin_cli sendrawtransaction $ctx
     wait_until_channel_closed bob
     new_blocks 1
-    wait_for_balance bob 0.14
+    wait_for_balance bob 1.4
     $bob getbalance
 fi
 
 if [[ $1 == "redeem_htlcs" ]]; then
     $bob setconfig lightning_settle_delay 10
-    wait_for_balance alice 1
+    wait_for_balance alice 10
     echo "alice opens channel"
     bob_node=$($bob nodeid)
-    $alice open_channel $bob_node 0.15
+    $alice open_channel $bob_node 1.5
     new_blocks 3
     wait_until_channel_open alice
     # alice pays bob
-    invoice=$($bob add_lightning_request 0.05 -m "test")
+    invoice=$($bob add_lightning_request 0.5 -m "test")
     $alice lnpay $invoice --timeout=1 || true
     sleep 1
     settled=$($alice list_channels | jq '.[] | .local_htlcs | .settles | length')
@@ -199,21 +199,21 @@ if [[ $1 == "redeem_htlcs" ]]; then
     sleep 3
     echo "alice balance after CSV" $($alice getbalance)
     # fixme: add local to getbalance
-    wait_for_balance alice $(echo "$balance_before - 0.02" | bc -l)
+    wait_for_balance alice $(echo "$balance_before - 0.2" | bc -l)
     $alice getbalance
 fi
 
 
 if [[ $1 == "breach_with_unspent_htlc" ]]; then
     $bob setconfig lightning_settle_delay 3
-    wait_for_balance alice 1
+    wait_for_balance alice 10
     echo "alice opens channel"
     bob_node=$($bob nodeid)
-    channel=$($alice open_channel $bob_node 0.15)
+    channel=$($alice open_channel $bob_node 1.5)
     new_blocks 3
     wait_until_channel_open alice
     echo "alice pays bob"
-    invoice=$($bob add_lightning_request 0.05 -m "test")
+    invoice=$($bob add_lightning_request 0.5 -m "test")
     $alice lnpay $invoice --timeout=1 || true
     settled=$($alice list_channels | jq '.[] | .local_htlcs | .settles | length')
     if [[ "$settled" != "0" ]]; then
@@ -229,20 +229,20 @@ if [[ $1 == "breach_with_unspent_htlc" ]]; then
     fi
     echo "alice breaches with old ctx"
     $bitcoin_cli sendrawtransaction $ctx
-    wait_for_balance bob 0.14
+    wait_for_balance bob 1.4
 fi
 
 
 if [[ $1 == "breach_with_spent_htlc" ]]; then
     $bob setconfig lightning_settle_delay 3
-    wait_for_balance alice 1
+    wait_for_balance alice 10
     echo "alice opens channel"
     bob_node=$($bob nodeid)
-    channel=$($alice open_channel $bob_node 0.15)
+    channel=$($alice open_channel $bob_node 1.5)
     new_blocks 3
     wait_until_channel_open alice
     echo "alice pays bob"
-    invoice=$($bob add_lightning_request 0.05 -m "test")
+    invoice=$($bob add_lightning_request 0.5 -m "test")
     $alice lnpay $invoice --timeout=1 || true
     ctx=$($alice get_channel_ctx $channel)
     settled=$($alice list_channels | jq '.[] | .local_htlcs | .settles | length')
@@ -284,7 +284,7 @@ if [[ $1 == "breach_with_spent_htlc" ]]; then
     $bob daemon -d
     sleep 1
     $bob load_wallet
-    wait_for_balance bob 0.049
+    wait_for_balance bob 0.49
     $bob getbalance
 fi
 
@@ -298,19 +298,19 @@ if [[ $1 == "configure_test_watchtower" ]]; then
 fi
 
 if [[ $1 == "watchtower" ]]; then
-    wait_for_balance alice 1
+    wait_for_balance alice 10
     echo "alice opens channel"
     bob_node=$($bob nodeid)
-    channel=$($alice open_channel $bob_node 0.15)
+    channel=$($alice open_channel $bob_node 1.5)
     echo "channel outpoint: $channel"
     new_blocks 3
     wait_until_channel_open alice
     echo "alice pays bob"
-    invoice1=$($bob add_lightning_request 0.01 -m "invoice1")
+    invoice1=$($bob add_lightning_request 0.1 -m "invoice1")
     $alice lnpay $invoice1
     ctx=$($alice get_channel_ctx $channel)
     echo "alice pays bob again"
-    invoice2=$($bob add_lightning_request 0.01 -m "invoice2")
+    invoice2=$($bob add_lightning_request 0.1 -m "invoice2")
     $alice lnpay $invoice2
     msg="waiting until watchtower is synchronized"
     while watchtower_ctn=$($carol get_watchtower_ctn $channel) && [ $watchtower_ctn != "3" ]; do
