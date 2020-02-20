@@ -411,9 +411,8 @@ class ChannelDB(SqlDB):
         )
 
     def add_channel_update(self, payload):
-        # called from add_own_channel
-        # the update may be categorized as deprecated because of caching
-        categorized_chan_upds = self.add_channel_updates([payload], verify=False)
+        # called from tests
+        self.add_channel_updates([payload], verify=False)
 
     def create_database(self):
         c = self.conn.cursor()

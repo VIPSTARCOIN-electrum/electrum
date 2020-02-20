@@ -51,7 +51,7 @@ from .lnutil import (Outpoint, LNPeerAddr,
                      generate_keypair, LnKeyFamily, LOCAL, REMOTE,
                      UnknownPaymentHash, MIN_FINAL_CLTV_EXPIRY_FOR_INVOICE,
                      NUM_MAX_EDGES_IN_PAYMENT_PATH, SENT, RECEIVED, HTLCOwner,
-                     UpdateAddHtlc, Direction, LnLocalFeatures, format_short_channel_id,
+                     UpdateAddHtlc, Direction, LnLocalFeatures,
                      ShortChannelID, PaymentAttemptLog, PaymentAttemptFailureDetails)
 from .lnutil import ln_dummy_address
 from .transaction import PartialTxOutput, PartialTransaction, PartialTxInput
@@ -1147,22 +1147,13 @@ class LNWallet(LNWorker):
         with self.lock:
             return Decimal(sum(chan.balance(LOCAL) if not chan.is_closed() else 0 for chan in self.channels.values()))/1000
 
-    def list_channels(self):
-        encoder = MyEncoder()
+    def can_send(self):
         with self.lock:
-            # we output the funding_outpoint instead of the channel_id because lnd uses channel_point (funding outpoint) to identify channels
-            for channel_id, chan in self.channels.items():
-                yield {
-                    'local_htlcs': json.loads(encoder.encode(chan.hm.log[LOCAL])),
-                    'remote_htlcs': json.loads(encoder.encode(chan.hm.log[REMOTE])),
-                    'channel_id': format_short_channel_id(chan.short_channel_id) if chan.short_channel_id else None,
-                    'full_channel_id': bh2u(chan.channel_id),
-                    'channel_point': chan.funding_outpoint.to_str(),
-                    'state': chan.get_state().name,
-                    'remote_pubkey': bh2u(chan.node_id),
-                    'local_balance': chan.balance(LOCAL)//1000,
-                    'remote_balance': chan.balance(REMOTE)//1000,
-                }
+            return Decimal(max(chan.available_to_spend(LOCAL) if chan.is_open() else 0 for chan in self.channels.values()))/1000
+
+    def can_receive(self):
+        with self.lock:
+            return Decimal(max(chan.available_to_spend(REMOTE) if chan.is_open() else 0 for chan in self.channels.values()))/1000
 
     async def close_channel(self, chan_id):
         chan = self.channels[chan_id]
