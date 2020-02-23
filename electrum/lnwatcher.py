@@ -349,7 +349,7 @@ class LNWalletWatcher(LNWatcher):
             return
         # detect who closed and set sweep_info
         sweep_info_dict = chan.sweep_ctx(closing_tx)
-        keep_watching = False
+        keep_watching = False if sweep_info_dict else not self.is_deeply_mined(closing_tx.txid())
         self.logger.info(f'sweep_info_dict length: {len(sweep_info_dict)}')
         # create and broadcast transaction
         for prevout, sweep_info in sweep_info_dict.items():
@@ -407,7 +407,10 @@ class LNWalletWatcher(LNWatcher):
         else:
             # it's OK to add local transaction, the fee will be recomputed
             try:
-                self.lnworker.wallet.add_future_tx(tx, remaining)
-                self.logger.info(f'adding future tx: {name}. prevout: {prevout}')
+                tx_was_added = self.lnworker.wallet.add_future_tx(tx, remaining)
             except Exception as e:
                 self.logger.info(f'could not add future tx: {name}. prevout: {prevout} {str(e)}')
+                tx_was_added = False
+            if tx_was_added:
+                self.logger.info(f'added future tx: {name}. prevout: {prevout}')
+                self.network.trigger_callback('wallet_updated', self.lnworker.wallet)

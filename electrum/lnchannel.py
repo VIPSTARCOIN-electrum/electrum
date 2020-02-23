@@ -230,6 +230,9 @@ class Channel(Logger):
         self._chan_ann_without_sigs = chan_ann
         return chan_ann
 
+    def is_static_remotekey_enabled(self):
+        return self.storage.get('static_remotekey_enabled')
+
     def set_short_channel_id(self, short_id):
         self.short_channel_id = short_id
         self.storage["short_channel_id"] = short_id
@@ -307,6 +310,11 @@ class Channel(Logger):
     def is_closed(self):
         # the closing txid has been saved
         return self.get_state() >= channel_states.CLOSED
+
+    def get_closing_txid(self):
+        item = self.lnworker.channel_timestamps.get(self.channel_id.hex())
+        funding_txid, funding_height, funding_timestamp, closing_txid, closing_height, closing_timestamp = item
+        return closing_txid
 
     def is_redeemed(self):
         return self.get_state() == channel_states.REDEEMED
@@ -766,7 +774,11 @@ class Channel(Logger):
             feerate,
             self.constraints.is_initiator == (subject == LOCAL),
         )
-        payment_pubkey = derive_pubkey(other_config.payment_basepoint.pubkey, this_point)
+        if self.is_static_remotekey_enabled():
+            payment_pubkey = other_config.payment_basepoint.pubkey
+        else:
+            payment_pubkey = derive_pubkey(other_config.payment_basepoint.pubkey, this_point)
+
         return make_commitment(
             ctn,
             this_config.multisig_key.pubkey,
@@ -845,7 +857,6 @@ class Channel(Logger):
                 self.logger.info(f'they force closed.')
             else:
                 self.sweep_info[txid] = {}
-                self.logger.info(f'not sure who closed {ctx}.')
         return self.sweep_info[txid]
 
     def sweep_htlc(self, ctx:Transaction, htlc_tx: Transaction):

@@ -24,7 +24,7 @@ PYINSTALLER_COMMIT=e934539374e30d1500fcdbe8e4eb0860413935b2
 
 CYTOOLZ_URL="https://github.com/y-chan/cytoolz/releases/download/0.10.0/cytoolz-0.10.0-cp36-cp36m-win32.whl"
 
-PYTHON_VERSION=3.6.8
+PYTHON_VERSION=3.7.6
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64

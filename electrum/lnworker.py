@@ -53,7 +53,7 @@ from .lnutil import (Outpoint, LNPeerAddr,
                      NUM_MAX_EDGES_IN_PAYMENT_PATH, SENT, RECEIVED, HTLCOwner,
                      UpdateAddHtlc, Direction, LnLocalFeatures,
                      ShortChannelID, PaymentAttemptLog, PaymentAttemptFailureDetails)
-from .lnutil import ln_dummy_address
+from .lnutil import ln_dummy_address, ln_compare_features
 from .transaction import PartialTxOutput, PartialTransaction, PartialTxInput
 from .lnonion import OnionFailureCode
 from .lnmsg import decode_msg
@@ -108,12 +108,13 @@ class LNWorker(Logger):
 
     def __init__(self, xprv):
         Logger.__init__(self)
-        self.node_keypair = generate_keypair(keystore.from_xprv(xprv), LnKeyFamily.NODE_KEY, 0)
+        self.node_keypair = generate_keypair(BIP32Node.from_xkey(xprv), LnKeyFamily.NODE_KEY)
         self.peers = {}  # type: Dict[bytes, Peer]  # pubkey -> Peer
         # set some feature flags as baseline for both LNWallet and LNGossip
         # note that e.g. DATA_LOSS_PROTECT is needed for LNGossip as many peers require it
         self.localfeatures = LnLocalFeatures(0)
         self.localfeatures |= LnLocalFeatures.OPTION_DATA_LOSS_PROTECT_OPT
+        self.localfeatures |= LnLocalFeatures.OPTION_STATIC_REMOTEKEY_OPT
 
     def channels_for_peer(self, node_id):
         return {}
@@ -164,7 +165,7 @@ class LNWorker(Logger):
         return peer
 
     def num_peers(self):
-        return sum([p.initialized.is_set() for p in self.peers.values()])
+        return sum([p.is_initialized() for p in self.peers.values()])
 
     def start_network(self, network: 'Network'):
         assert network
@@ -183,6 +184,21 @@ class LNWorker(Logger):
                 self._add_peer(host, int(port), bfh(pubkey)),
                 self.network.asyncio_loop)
 
+    def is_good_peer(self, peer):
+        # the purpose of this method is to filter peers that advertise the desired feature bits
+        # it is disabled for now, because feature bits published in node announcements seem to be unreliable
+        return True
+        node_id = peer.pubkey
+        node = self.channel_db._nodes.get(node_id)
+        if not node:
+            return False
+        try:
+            ln_compare_features(self.localfeatures, node.features)
+        except ValueError:
+            return False
+        #self.logger.info(f'is_good {peer.host}')
+        return True
+
     async def _get_next_peers_to_try(self) -> Sequence[LNPeerAddr]:
         now = time.time()
         await self.channel_db.data_loaded.wait()
@@ -198,6 +214,8 @@ class LNWorker(Logger):
                 continue
             if peer in self._last_tried_peer:
                 continue
+            if not self.is_good_peer(peer):
+                continue
             return [peer]
         # try random peer from graph
         unconnected_nodes = self.channel_db.get_200_randomly_sorted_nodes_not_in(self.peers.keys())
@@ -212,6 +230,8 @@ class LNWorker(Logger):
                 except ValueError:
                     continue
                 if peer in self._last_tried_peer:
+                    continue
+                if not self.is_good_peer(peer):
                     continue
                 #self.logger.info('taking random ln peer from our channel db')
                 return [peer]
@@ -325,8 +345,8 @@ class LNWallet(LNWorker):
         self.db = wallet.db
         self.config = wallet.config
         LNWorker.__init__(self, xprv)
-        self.ln_keystore = keystore.from_xprv(xprv)
         self.localfeatures |= LnLocalFeatures.OPTION_DATA_LOSS_PROTECT_REQ
+        self.localfeatures |= LnLocalFeatures.OPTION_STATIC_REMOTEKEY_REQ
         self.payments = self.db.get_dict('lightning_payments')     # RHASH -> amount, direction, is_paid
         self.preimages = self.db.get_dict('lightning_preimages')   # RHASH -> preimage
         self.sweep_address = wallet.get_receiving_address()
@@ -459,8 +479,8 @@ class LNWallet(LNWorker):
             'rhash': lnaddr.paymenthash.hex(),
         }
 
-    def get_history(self):
-        out = []
+    def get_lightning_history(self):
+        out = {}
         for key, plist in self.get_settled_payments().items():
             if len(plist) == 0:
                 continue
@@ -488,7 +508,6 @@ class LNWallet(LNWorker):
 
             payment_hash = bytes.fromhex(key)
             preimage = self.get_preimage(payment_hash).hex()
-
             item = {
                 'type': 'payment',
                 'label': label,
@@ -500,7 +519,11 @@ class LNWallet(LNWorker):
                 'payment_hash': key,
                 'preimage': preimage,
             }
-            out.append(item)
+            out[payment_hash] = item
+        return out
+
+    def get_onchain_history(self):
+        out = {}
         # add funding events
         with self.lock:
             channels = list(self.channels.values())
@@ -519,7 +542,7 @@ class LNWallet(LNWorker):
                 'timestamp': funding_timestamp,
                 'fee_msat': None,
             }
-            out.append(item)
+            out[funding_txid] = item
             if not chan.is_closed():
                 continue
             assert closing_txid
@@ -533,7 +556,11 @@ class LNWallet(LNWorker):
                 'timestamp': closing_timestamp,
                 'fee_msat': None,
             }
-            out.append(item)
+            out[closing_txid] = item
+        return out
+
+    def get_history(self):
+        out = list(self.get_lightning_history().values()) + list(self.get_onchain_history().values())
         # sort by timestamp
         out.sort(key=lambda x: (x.get('timestamp') or float("inf")))
         balance_msat = 0
@@ -553,7 +580,7 @@ class LNWallet(LNWorker):
     def suggest_peer(self):
         r = []
         for node_id, peer in self.peers.items():
-            if not peer.initialized.is_set():
+            if not peer.is_initialized():
                 continue
             if not all([chan.is_closed() for chan in peer.channels.values()]):
                 continue
@@ -631,7 +658,7 @@ class LNWallet(LNWorker):
 
         if chan.get_state() == channel_states.FUNDED:
             peer = self.peers.get(chan.node_id)
-            if peer and peer.initialized.is_set():
+            if peer and peer.is_initialized():
                 peer.send_funding_locked(chan)
 
         elif chan.get_state() == channel_states.OPEN:
@@ -706,8 +733,8 @@ class LNWallet(LNWorker):
                                       funding_sat: int, push_sat: int,
                                       password: Optional[str]) -> Tuple[Channel, PartialTransaction]:
         peer = await self.add_peer(connect_str)
-        # peer might just have been connected to
-        await asyncio.wait_for(peer.initialized.wait(), LN_P2P_NETWORK_TIMEOUT)
+        # will raise if init fails
+        await asyncio.wait_for(peer.initialized, LN_P2P_NETWORK_TIMEOUT)
         chan, funding_tx = await peer.channel_establishment_flow(
             password,
             funding_tx=funding_tx,
@@ -763,6 +790,8 @@ class LNWallet(LNWorker):
     def open_channel(self, *, connect_str: str, funding_tx: PartialTransaction,
                      funding_sat: int, push_amt_sat: int, password: str = None,
                      timeout: Optional[int] = 20) -> Tuple[Channel, PartialTransaction]:
+        if self.wallet.is_lightning_backup():
+            raise BaseException(_('Cannot create channel: this is a backup file'))
         if funding_sat > LN_MAX_FUNDING_SAT:
             raise Exception(_("Requested channel capacity is over protocol allowed maximum."))
         coro = self._open_channel_coroutine(connect_str=connect_str, funding_tx=funding_tx, funding_sat=funding_sat,
@@ -1149,11 +1178,11 @@ class LNWallet(LNWorker):
 
     def can_send(self):
         with self.lock:
-            return Decimal(max(chan.available_to_spend(LOCAL) if chan.is_open() else 0 for chan in self.channels.values()))/1000
+            return Decimal(max(chan.available_to_spend(LOCAL) if chan.is_open() else 0 for chan in self.channels.values()))/1000 if self.channels else 0
 
     def can_receive(self):
         with self.lock:
-            return Decimal(max(chan.available_to_spend(REMOTE) if chan.is_open() else 0 for chan in self.channels.values()))/1000
+            return Decimal(max(chan.available_to_spend(REMOTE) if chan.is_open() else 0 for chan in self.channels.values()))/1000 if self.channels else 0
 
     async def close_channel(self, chan_id):
         chan = self.channels[chan_id]
